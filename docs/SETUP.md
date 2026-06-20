@@ -1,0 +1,251 @@
+# Local Setup Guide
+
+## Prerequisites
+
+| Requirement | Version | Notes |
+|---|---|---|
+| Python | 3.11+ | |
+| Node.js | 20+ | |
+| Microsoft SQL Server | Any edition | Express (free) works fine |
+| ODBC Driver 17 for SQL Server | 17.x | Must match `DB_DRIVER` env var |
+| Git | Any | |
+
+---
+
+## Step 1: SQL Server Setup
+
+### Install SQL Server Express (if not already installed)
+
+Download from Microsoft: SQL Server 2022 Express or SQL Server 2019 Express.
+
+During installation:
+- Choose **Windows Authentication mode** (default on Express).
+- Note the instance name — typically `YOURMACHINE\SQLEXPRESS`.
+
+### Enable TCP/IP and Named Pipes (optional for local dev)
+
+For a local named instance (`MACHINE\SQLEXPRESS`), the connection uses the named pipe / shared memory protocol by default. No port number is needed — and adding one will break named-instance connections.
+
+### Create the database
+
+Open SQL Server Management Studio (SSMS) or `sqlcmd`:
+
+```sql
+CREATE DATABASE AlphalyticDB;
+```
+
+### Install ODBC Driver 17
+
+Download from Microsoft: "Microsoft ODBC Driver 17 for SQL Server" for your OS.
+
+Verify installation:
+```bash
+# Windows — check ODBC Data Sources (odbcad32.exe)
+# or from Python:
+import pyodbc
+print(pyodbc.drivers())
+# Should include: 'ODBC Driver 17 for SQL Server'
+```
+
+---
+
+## Step 2: Backend Setup
+
+```bash
+cd "Alphalytic AI (ATT)/backend"
+
+# Create virtual environment
+python -m venv venv
+
+# Activate (Windows)
+venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+---
+
+## Step 3: Environment Configuration
+
+Create a `.env` file in the `backend/` directory:
+
+```ini
+# ── Application ───────────────────────────────────────────────
+APP_NAME=Alphalytic AI
+APP_ENV=development
+DEBUG=true
+
+# ── Auth (REQUIRED) ───────────────────────────────────────────
+SECRET_KEY=generate-a-random-32-char-string-here
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=60
+REFRESH_TOKEN_EXPIRE_DAYS=30
+
+# ── Database (REQUIRED) ───────────────────────────────────────
+DB_SERVER=YOURMACHINE\SQLEXPRESS
+DB_NAME=AlphalyticDB
+DB_DRIVER=ODBC Driver 17 for SQL Server
+
+# ── Market Data ───────────────────────────────────────────────
+# Use "mock" for development; "fyers" requires a valid Fyers token
+MARKET_DATA_VENDOR=mock
+
+# ── LLM (optional) ────────────────────────────────────────────
+# Use "none" to use the rule-based copilot fallback
+LLM_PROVIDER=none
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+
+# ── Fyers (optional — only needed for live market data) ───────
+FYERS_CLIENT_ID=
+FYERS_APP_ID=
+FYERS_SECRET_ID=
+FYERS_REDIRECT_URI=http://127.0.0.1:8000/api/v1/auth/fyers/callback
+FYERS_ACCESS_TOKEN=
+
+# ── CORS ──────────────────────────────────────────────────────
+ALLOWED_ORIGINS=http://localhost:5173
+```
+
+### Generate a SECRET_KEY
+
+```python
+import secrets
+print(secrets.token_hex(32))
+```
+
+### Windows Auth Connection String
+
+The backend builds the connection string from `DB_SERVER`, `DB_NAME`, and `DB_DRIVER`:
+
+```
+mssql+aioodbc://@MACHINE\SQLEXPRESS/AlphalyticDB
+  ?driver=ODBC+Driver+17+for+SQL+Server
+  &Trusted_Connection=yes
+  &TrustServerCertificate=yes
+```
+
+There is **no username or password** in this string — Windows Authentication uses the OS user running the process. Ensure the Windows user running `uvicorn` has `db_owner` or at minimum `db_datareader + db_datawriter` permissions on `AlphalyticDB`.
+
+---
+
+## Step 4: Database Migrations
+
+Alembic is configured but the `alembic/versions/` directory is currently empty — migrations have not been generated yet.
+
+### Generate the first migration from the current models
+
+```bash
+cd backend
+alembic revision --autogenerate -m "initial_schema"
+```
+
+Review the generated file in `alembic/versions/` to verify it matches `db/models.py`.
+
+### Apply migrations
+
+```bash
+alembic upgrade head
+```
+
+### Roll back one revision
+
+```bash
+alembic downgrade -1
+```
+
+---
+
+## Step 5: Run the Backend
+
+```bash
+cd backend
+venv\Scripts\activate
+
+# Development (auto-reload on file change)
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Check the API is up:
+- Swagger UI: http://localhost:8000/docs
+- Health: http://localhost:8000/api/v1/health (if implemented)
+
+---
+
+## Step 6: Frontend Setup
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend runs at http://localhost:5173
+
+The Vite dev server proxies all `/api` requests to `http://localhost:8000` — no CORS configuration needed in dev.
+
+### Frontend build (production)
+
+```bash
+npm run build
+# Output in frontend/dist/
+```
+
+---
+
+## Running in Mock Mode vs Fyers Live Mode
+
+### Mock mode (default, `MARKET_DATA_VENDOR=mock`)
+
+All market data (spot, option chain, futures, news, institutional activity) is generated by `ingestion/providers/mock_provider.py`. Data is synthetic but deterministic enough to exercise all engine logic. No external API calls are made.
+
+This is the recommended mode for development and testing.
+
+### Fyers live mode (`MARKET_DATA_VENDOR=fyers`)
+
+Requires a valid Fyers API app and daily token refresh.
+
+**One-time setup:**
+1. Register at [myapi.fyers.in](https://myapi.fyers.in) and create an app.
+2. Set `FYERS_APP_ID`, `FYERS_SECRET_ID`, and `FYERS_CLIENT_ID` in `.env`.
+3. Set `FYERS_REDIRECT_URI=http://127.0.0.1:8000/api/v1/auth/fyers/callback`.
+
+**Daily token flow:**
+1. Start the backend.
+2. Navigate to http://localhost:8000/api/v1/auth/fyers/login.
+3. Open the returned `login_url` in your browser.
+4. Log in with your Fyers credentials — you will be redirected back automatically.
+5. The callback endpoint exchanges the `auth_code` for an access token and saves it.
+6. Verify: http://localhost:8000/api/v1/auth/fyers/status
+
+**Alternative (manual paste):**
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/fyers/token \
+  -H "Content-Type: application/json" \
+  -d '{"access_token": "your_fyers_token"}'
+```
+
+> **Note:** Fyers access tokens expire daily. The token must be refreshed each trading day.
+
+---
+
+## Common Setup Errors
+
+### `[ODBC] Data source name not found`
+The ODBC driver name in `DB_DRIVER` does not match what's installed. Run `pyodbc.drivers()` and use the exact string from the output.
+
+### `Login failed for user 'NT AUTHORITY\ANONYMOUS LOGON'`
+The SQL Server instance does not allow Windows Authentication, or the Windows user running Python does not have database access. Grant `db_owner` to the current Windows user in SSMS.
+
+### `Named Pipes Provider: Could not open a connection to SQL Server [53]`
+SQL Server service is not running, or the instance name in `DB_SERVER` is wrong. Check SQL Server Configuration Manager → SQL Server Services.
+
+### `Cannot connect to SQL Server named instance with port`
+Named instances (`MACHINE\SQLEXPRESS`) do not use a fixed port. Remove any port specification from `DB_SERVER`. The connection string builder in `config.py` never adds a port by design.
+
+### `alembic: Target database is not up to date`
+Run `alembic upgrade head` from the `backend/` directory with the virtualenv activated.
+
+### `FYERS_NOT_CONFIGURED`
+`FYERS_APP_ID` and/or `FYERS_SECRET_ID` are missing from `.env`. These are only needed when `MARKET_DATA_VENDOR=fyers`.
