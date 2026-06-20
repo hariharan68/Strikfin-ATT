@@ -50,7 +50,7 @@ function ScoreGauge({ score, barColor }: { score: number; barColor: string }) {
       <path
         d={arcPath(startAngle, endAngle)}
         fill="none"
-        stroke="#e2e8f0"
+        stroke="var(--color-slate-200)"
         strokeWidth="8"
         strokeLinecap="round"
       />
@@ -65,10 +65,10 @@ function ScoreGauge({ score, barColor }: { score: number; barColor: string }) {
         />
       )}
       {/* Score text */}
-      <text x={cx} y={cy + 4} textAnchor="middle" fontSize="18" fontWeight="700" fill="#0f172a">
+      <text x={cx} y={cy + 4} textAnchor="middle" fontSize="18" fontWeight="700" fill="var(--color-slate-900)">
         {score}
       </text>
-      <text x={cx} y={cy + 16} textAnchor="middle" fontSize="8" fill="#94a3b8" fontWeight="600">
+      <text x={cx} y={cy + 16} textAnchor="middle" fontSize="8" fill="var(--color-slate-400)" fontWeight="600">
         / 100
       </text>
     </svg>

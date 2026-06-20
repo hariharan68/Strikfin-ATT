@@ -11,7 +11,7 @@ export function Panel({ children, className }: PanelProps) {
   return (
     <div
       className={cn(
-        'rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/[0.02]',
+        'rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/[0.02] dark:shadow-black/20',
         className,
       )}
     >

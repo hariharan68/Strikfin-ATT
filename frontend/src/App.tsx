@@ -111,7 +111,7 @@ export default function App() {
             <Route path="/signals" element={<SignalsPage />} />
             <Route path="/smart-money" element={<SmartMoneyPage />} />
             <Route path="/institutional" element={<InstitutionalPage />} />
-            <Route path="/sentiment" element={<SentimentPage />} />
+            <Route path="/all-in-1" element={<SentimentPage />} />
             <Route path="/copilot" element={<CopilotPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>

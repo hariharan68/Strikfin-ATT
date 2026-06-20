@@ -35,7 +35,7 @@ export function LiveBadge({ time, refreshing }: { time: string; refreshing?: boo
 
 export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-400">
       <span className="flex items-center gap-2">
         <span aria-hidden>⚠</span>
         {message}
@@ -43,7 +43,7 @@ export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: (
       {onRetry && (
         <button
           onClick={onRetry}
-          className="rounded-md border border-rose-300 bg-white px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-100"
+          className="rounded-md border border-rose-300 bg-white px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-100 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-400 dark:hover:bg-rose-900"
         >
           Retry
         </button>

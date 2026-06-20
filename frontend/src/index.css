@@ -1,5 +1,8 @@
 @import 'tailwindcss';
 
+/* Enable dark: utilities when .dark is on <html> */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Tailwind v4 theme tokens — exposed as utilities (bg-primary-600, text-surface, etc.) */
 @theme {
   --color-primary-50: #eef3ff;
@@ -33,6 +36,58 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ───────────────────────────────────────────────────────────
+   DARK MODE — designed palette.
+   We remap the entire slate scale (which every page/component
+   already uses) so that `text-slate-900`, `bg-slate-50`,
+   `border-slate-200`, etc. all invert to a tuned dark theme
+   automatically — no per-element dark: variants required.
+   Accent scales (primary/emerald/rose/amber) are left intact;
+   they read well on a dark surface.
+   ─────────────────────────────────────────────────────────── */
+html.dark {
+  color-scheme: dark;
+
+  /* App surfaces */
+  --color-surface: #0a0e16;
+  --app-card: #141b27;
+  --app-card-2: #1a2230;
+
+  /* Slate scale, tuned for dark (high numbers = light text) */
+  --color-slate-50: #161d29;
+  --color-slate-100: #1d2533;
+  --color-slate-200: #2a3342;
+  --color-slate-300: #3a4556;
+  --color-slate-400: #6c788c;
+  --color-slate-500: #8b96a9;
+  --color-slate-600: #a6b1c2;
+  --color-slate-700: #c2cbd9;
+  --color-slate-800: #dde3ec;
+  --color-slate-900: #f1f4f9;
+  --color-slate-950: #f8fafc;
+}
+
+html.dark body {
+  background-color: var(--color-surface);
+  color: var(--color-slate-700);
+}
+
+/* White card surfaces → dark card. Specificity (.dark .bg-white)
+   beats the single-class utility, so every plain bg-white adapts. */
+html.dark .bg-white {
+  background-color: var(--app-card);
+}
+
+/* Dark scrollbar */
+html.dark ::-webkit-scrollbar-thumb {
+  background: #2f3a4a;
+  background-clip: content-box;
+}
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #3f4c60;
+  background-clip: content-box;
 }
 
 /* Custom scrollbar */

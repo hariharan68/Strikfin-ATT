@@ -175,7 +175,7 @@ export function OIChangeChart({ bars, mode, showOi, spot, atmStrike }: OIChangeC
               x2={width - PAD_RIGHT}
               y1={yOf(t)}
               y2={yOf(t)}
-              stroke="#eef2f6"
+              stroke="var(--color-slate-100)"
               strokeWidth={1}
             />
             <text x={PAD_LEFT - 10} y={yOf(t) + 3} textAnchor="end" className="fill-slate-400 text-[10px]">
@@ -192,13 +192,13 @@ export function OIChangeChart({ bars, mode, showOi, spot, atmStrike }: OIChangeC
               x2={spotX}
               y1={PAD_TOP - 2}
               y2={baseY}
-              stroke="#334155"
+              stroke="var(--color-slate-700)"
               strokeWidth={1}
               strokeDasharray="3 3"
             />
             {spot !== undefined && (
               <g>
-                <rect x={spotX - 36} y={PAD_TOP - 20} width={72} height={16} rx={4} className="fill-slate-800" />
+                <rect x={spotX - 36} y={PAD_TOP - 20} width={72} height={16} rx={4} fill="#1e293b" />
                 <text x={spotX} y={PAD_TOP - 8} textAnchor="middle" className="fill-white text-[10px] font-semibold">
                   {formatInt(Math.round(spot))}
                 </text>
@@ -240,7 +240,7 @@ export function OIChangeChart({ bars, mode, showOi, spot, atmStrike }: OIChangeC
           )
         })}
 
-        <line x1={PAD_LEFT} x2={width - PAD_RIGHT} y1={baseY} y2={baseY} stroke="#cbd5e1" strokeWidth={1} />
+        <line x1={PAD_LEFT} x2={width - PAD_RIGHT} y1={baseY} y2={baseY} stroke="var(--color-slate-300)" strokeWidth={1} />
       </svg>
 
       {/* Tooltip */}
