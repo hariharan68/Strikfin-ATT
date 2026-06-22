@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   getOptionsChain,
   getOptionsMetrics,
@@ -10,8 +10,12 @@ import { useFetch } from '../lib/useFetch'
 import { useInstrument } from '../lib/useInstrument'
 import { cn, formatCompact, formatNumber, formatSignedPct } from '../lib/format'
 import { Panel } from '../components/ui/Panel'
-import { ErrorBanner } from '../components/ui/Page'
+import { InstrumentTabs } from '../components/ui/InstrumentTabs'
+import { LiveClock } from '../components/ui/LiveClock'
+import { PageHeader, ErrorBanner } from '../components/ui/Page'
 import { Skeleton } from '../components/ui/Skeleton'
+
+const PANEL_KEY = 'aoi-filters-open'
 import { OIChangeChart } from '../components/oi/OIChangeChart'
 import type { StrikeBar } from '../components/oi/OIChangeChart'
 import { DualRangeSlider } from '../components/oi/DualRangeSlider'
@@ -92,6 +96,11 @@ export function AdvanceOIPage() {
   const [instrument, setInstrument] = useInstrument()
   const [tab, setTab] = useState<Tab>('OI Change')
   const [showOi, setShowOi] = useState(true)
+  const [panelOpen, setPanelOpen] = useState(() => localStorage.getItem(PANEL_KEY) !== 'closed')
+
+  useEffect(() => {
+    localStorage.setItem(PANEL_KEY, panelOpen ? 'open' : 'closed')
+  }, [panelOpen])
 
   const snapshot = useFetch<IndexSnapshot>(() => getSnapshot(instrument), [instrument], {
     intervalMs: 15_000,
@@ -212,6 +221,17 @@ export function AdvanceOIPage() {
 
   return (
     <div>
+      <PageHeader
+        title="Advanced OI Analysis"
+        subtitle="Open interest change, buildup & flow by strike"
+        right={
+          <>
+            <InstrumentTabs value={instrument} onChange={setInstrument} />
+            <LiveClock refreshing={loading} />
+          </>
+        }
+      />
+
       {/* ── Top tab bar ─────────────────────────────────────────── */}
       <div className="mb-5 flex flex-col gap-3 border-b border-slate-200 pb-px sm:flex-row sm:items-center sm:justify-between">
         <div className="flex gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -262,8 +282,9 @@ export function AdvanceOIPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[300px_1fr]">
-        {/* ── Left controls ─────────────────────────────────────── */}
+      <div className={cn('grid grid-cols-1 gap-5', panelOpen && 'lg:grid-cols-[300px_1fr]')}>
+        {/* ── Left controls (collapsible) ───────────────────────── */}
+        {panelOpen && (
         <div className="space-y-5">
           {/* Symbol */}
           <Panel className="p-4">
@@ -284,7 +305,6 @@ export function AdvanceOIPage() {
                   </span>
                 </div>
               </div>
-              <InstrumentToggle value={instrument} onChange={setInstrument} />
             </div>
 
             <div className="mt-3 flex gap-4 text-sm">
@@ -379,9 +399,21 @@ export function AdvanceOIPage() {
             </div>
           </Panel>
         </div>
+        )}
 
         {/* ── Chart panel ───────────────────────────────────────── */}
         <Panel className="min-w-0 p-5">
+          <div className="mb-3 flex items-center gap-2 border-b border-slate-100 pb-3">
+            <button
+              type="button"
+              onClick={() => setPanelOpen((o) => !o)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50"
+              aria-label={panelOpen ? 'Hide filters' : 'Show filters'}
+            >
+              <span aria-hidden>{panelOpen ? '⟨⟨' : '☰'}</span>
+              {panelOpen ? 'Hide filters' : 'Show filters'}
+            </button>
+          </div>
           {tab === 'OI Change' || tab === 'Open Interest' ? (
             <>
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -532,31 +564,6 @@ function SummaryStat({
   )
 }
 
-function InstrumentToggle({
-  value,
-  onChange,
-}: {
-  value: 1 | 2
-  onChange: (v: 1 | 2) => void
-}) {
-  return (
-    <div className="inline-flex rounded-md bg-slate-100 p-0.5">
-      {INSTRUMENTS.map((inst) => (
-        <button
-          key={inst.id}
-          onClick={() => onChange(inst.id)}
-          className={cn(
-            'rounded px-2 py-1 text-[11px] font-semibold transition-colors',
-            inst.id === value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500',
-          )}
-        >
-          {inst.short}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 function StrikeStepper({
   label,
   value,
@@ -612,7 +619,7 @@ function PresetButton({
     <button
       onClick={onClick}
       className={cn(
-        'rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors',
+        'press rounded-lg border px-2.5 py-1.5 text-xs font-medium',
         active
           ? 'border-primary-300 bg-primary-50 text-primary-700'
           : 'border-slate-200 text-slate-600 hover:bg-slate-50',

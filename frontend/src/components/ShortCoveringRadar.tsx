@@ -5,11 +5,11 @@ import { Skeleton } from './ui/Skeleton'
 const STATUS_CONFIG: Record<string, {
   bg: string; border: string; text: string; dot: string; label: string; barColor: string
 }> = {
-  'Watching':       { bg: 'bg-slate-50',   border: 'border-slate-200',  text: 'text-slate-500',   dot: 'bg-slate-400',   label: '👁',  barColor: '#94a3b8' },
-  'Early Signs':    { bg: 'bg-amber-50',   border: 'border-amber-200',  text: 'text-amber-700',   dot: 'bg-amber-400',   label: '⚠',  barColor: '#f59e0b' },
-  'Possible Rally': { bg: 'bg-orange-50',  border: 'border-orange-200', text: 'text-orange-700',  dot: 'bg-orange-400',  label: '🔶', barColor: '#f97316' },
-  'Confirmed':      { bg: 'bg-emerald-50', border: 'border-emerald-200',text: 'text-emerald-700', dot: 'bg-emerald-500', label: '✅', barColor: '#10b981' },
-  'Strong Signal':  { bg: 'bg-green-50',   border: 'border-green-200',  text: 'text-green-700',   dot: 'bg-green-500',   label: '🚀', barColor: '#22c55e' },
+  'Watching':       { bg: 'bg-slate-50',                              border: 'border-slate-200',                          text: 'text-slate-500',                          dot: 'bg-slate-400',   label: '👁',  barColor: '#94a3b8' },
+  'Early Signs':    { bg: 'bg-amber-50   dark:bg-amber-950/20',       border: 'border-amber-200   dark:border-amber-800/40',  text: 'text-amber-700   dark:text-amber-400',   dot: 'bg-amber-400',   label: '⚠',  barColor: '#f59e0b' },
+  'Possible Rally': { bg: 'bg-orange-50  dark:bg-orange-950/20',      border: 'border-orange-200  dark:border-orange-800/40', text: 'text-orange-700  dark:text-orange-400',  dot: 'bg-orange-400',  label: '🔶', barColor: '#f97316' },
+  'Confirmed':      { bg: 'bg-emerald-50 dark:bg-emerald-950/20',     border: 'border-emerald-200 dark:border-emerald-800/40',text: 'text-emerald-700 dark:text-emerald-400', dot: 'bg-emerald-500', label: '✅', barColor: '#10b981' },
+  'Strong Signal':  { bg: 'bg-green-50   dark:bg-green-950/20',       border: 'border-green-200   dark:border-green-800/40',  text: 'text-green-700   dark:text-green-400',   dot: 'bg-green-500',   label: '🚀', barColor: '#22c55e' },
 }
 
 const DEFAULT_CONFIG = STATUS_CONFIG['Watching']
@@ -79,7 +79,7 @@ function ScoreGauge({ score, barColor }: { score: number; barColor: string }) {
 function FactorRow({ factor }: { factor: ShortCoveringFactor }) {
   return (
     <div className={`flex items-start gap-3 rounded-lg px-3 py-2.5 ${
-      factor.fired ? 'bg-emerald-50' : 'bg-slate-50'
+      factor.fired ? 'bg-emerald-50 dark:bg-emerald-950/20' : 'bg-slate-50'
     }`}>
       <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
         factor.fired
@@ -92,7 +92,7 @@ function FactorRow({ factor }: { factor: ShortCoveringFactor }) {
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-semibold text-slate-700">{factor.name}</span>
           <span className={`shrink-0 text-xs font-bold ${
-            factor.fired ? 'text-emerald-600' : 'text-slate-400'
+            factor.fired ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
           }`}>
             {factor.value}
           </span>
@@ -234,7 +234,7 @@ export function ShortCoveringRadar({ data, loading }: Props) {
             <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">
               AI Verdict
             </p>
-            <p className="text-sm leading-relaxed text-slate-700">{data.verdict}</p>
+            <p className="text-sm leading-relaxed text-slate-600">{data.verdict}</p>
           </div>
         )}
 

@@ -74,6 +74,50 @@ html.dark body {
   color: var(--color-slate-700);
 }
 
+/* ───────────────────────────────────────────────────────────
+   WARM CREAM — terracotta & cream light theme.
+   Same mechanism as dark mode: we override the CSS variables that
+   the slate/primary utilities resolve to, so `bg-primary-600`,
+   `bg-white`, `bg-slate-50`, etc. all re-tint with no per-element
+   changes. The primary scale shifts blue → terracotta; surfaces
+   warm to cream. Text-weight slate steps (400–900) keep their
+   default neutrals so contrast stays strong on cream.
+   ─────────────────────────────────────────────────────────── */
+html.theme-warm {
+  /* App surfaces */
+  --color-surface: #f1e8df;
+  --app-card: #fbf8f4;
+
+  /* Primary → terracotta */
+  --color-primary-50: #fdf4ee;
+  --color-primary-100: #fae6d9;
+  --color-primary-200: #f4cab2;
+  --color-primary-300: #eca983;
+  --color-primary-400: #df8253;
+  --color-primary-500: #cc6334;
+  --color-primary-600: #c0561f;
+  --color-primary-700: #a0481b;
+  --color-primary-800: #813c19;
+  --color-primary-900: #6a3318;
+
+  /* Warm-tinted neutrals for low slate steps (backgrounds/borders) */
+  --color-slate-50: #f5efe8;
+  --color-slate-100: #ece2d6;
+  --color-slate-200: #e1d4c5;
+  --color-slate-300: #cdbca7;
+}
+
+html.theme-warm body {
+  background-color: var(--color-surface);
+  color: #2c2218;
+}
+
+/* Cream card surfaces. Specificity (.theme-warm .bg-white) beats the
+   single-class utility, so every plain bg-white warms automatically. */
+html.theme-warm .bg-white {
+  background-color: var(--app-card);
+}
+
 /* White card surfaces → dark card. Specificity (.dark .bg-white)
    beats the single-class utility, so every plain bg-white adapts. */
 html.dark .bg-white {
@@ -143,4 +187,113 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 
 .animate-toast-in {
   animation: toast-in 0.18s ease-out;
+}
+
+@keyframes fab-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.4) translateY(20px);
+  }
+  60% {
+    transform: scale(1.08) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-fab-in {
+  animation: fab-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Skeleton base pulse — guarantees visible motion even where the shimmer
+   sweep is subtle (e.g. large blocks). */
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.animate-skeleton {
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+/* ── Motion system ──────────────────────────────────────────────
+   A subtle entrance applied to each routed page, plus a gentle
+   top-down stagger for its direct children so dashboards "settle"
+   into place instead of popping. */
+html {
+  scroll-behavior: smooth;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Animate the routed content (direct children) with a gentle stagger —
+   never the wrapper itself, to avoid compounding transforms. */
+.animate-page > * {
+  animation: fade-in-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.animate-page > *:nth-child(1) { animation-delay: 0.02s; }
+.animate-page > *:nth-child(2) { animation-delay: 0.07s; }
+.animate-page > *:nth-child(3) { animation-delay: 0.12s; }
+.animate-page > *:nth-child(4) { animation-delay: 0.17s; }
+.animate-page > *:nth-child(n + 5) { animation-delay: 0.2s; }
+
+/* Unified interactive-surface depth: smooth lift + shadow on hover. */
+.card-interactive {
+  transition:
+    transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+  will-change: transform;
+}
+.card-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px -12px rgba(15, 23, 42, 0.25);
+}
+
+/* Table rows: smooth hover + subtle zebra striping for faster scanning. */
+.table-rows tbody tr {
+  transition: background-color 0.15s ease;
+}
+.table-rows tbody tr:nth-child(even) {
+  background-color: rgb(148 163 184 / 0.04);
+}
+
+/* Tactile press feedback for buttons/toggles. */
+.press {
+  transition:
+    transform 0.12s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.press:active {
+  transform: scale(0.97);
+}
+
+/* Respect users who prefer less motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

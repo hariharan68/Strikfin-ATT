@@ -37,7 +37,7 @@ export function MetricCard({
   return (
     <div
       className={cn(
-        'rounded-xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-900/[0.02]',
+        'card-interactive rounded-xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-900/[0.02]',
         className,
       )}
     >

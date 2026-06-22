@@ -21,7 +21,7 @@ export function FactorCard({ module, reading }: FactorCardProps) {
       type="button"
       onClick={() => setOpen((o) => !o)}
       className={cn(
-        'flex flex-col rounded-lg border border-slate-200 bg-white p-3 text-left transition-colors hover:border-slate-300',
+        'card-interactive flex flex-col rounded-lg border border-slate-200 bg-white p-3 text-left hover:border-slate-300',
         reading.blocked && 'opacity-60',
       )}
     >

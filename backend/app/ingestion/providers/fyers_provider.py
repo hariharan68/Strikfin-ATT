@@ -16,6 +16,8 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
+from app.engines.options_math import implied_vol
+
 logger = logging.getLogger(__name__)
 
 # ── Tiny TTL cache ────────────────────────────────────────────
@@ -369,6 +371,24 @@ def _fetch_option_chain(
         else:
             expiry = _normalize_expiry(None, expiry_date)
 
+        # Time-to-expiry in years for the IV solver. Fyers' `expiry` is the
+        # unix timestamp of the exact expiry instant (15:30 IST).
+        t_years = 0.0
+        if expiry_list:
+            try:
+                exp_ts  = int(expiry_list[0].get("expiry"))
+                t_years = max(exp_ts - time.time(), 0.0) / (365.0 * 86400.0)
+            except (TypeError, ValueError):
+                t_years = 0.0
+
+        # Forward price for Black-76. Fyers carries it as `fp` on the
+        # underlying row; fall back to spot ltp if absent.
+        forward = 0.0
+        for opt in options:
+            if float(opt.get("strike_price", 0) or 0) < 0:
+                forward = float(opt.get("fp", 0) or 0) or float(opt.get("ltp", 0) or 0)
+                break
+
         # Fyers' optionsChain is a FLAT list: each entry is one CE or PE.
         # The underlying carries strike_price == -1 (its ltp is the spot).
         rows = []
@@ -384,15 +404,20 @@ def _fetch_option_chain(
                 spot = float(opt.get("ltp", 0) or 0) or spot
                 continue
 
-            oi = int(opt.get("oi", 0) or 0)
+            oi  = int(opt.get("oi", 0) or 0)
+            ltp = float(opt.get("ltp", 0) or 0)
+
+            # Fyers doesn't return IV — recover it from the premium.
+            iv = implied_vol(otype, ltp, forward or spot, strike, t_years)
+
             rows.append({
                 "strike":      strike,
                 "option_type": otype,
-                "ltp":         float(opt.get("ltp", 0) or 0),
+                "ltp":         ltp,
                 "oi":          oi,
                 "oi_change":   int(opt.get("oich", 0) or 0),
                 "volume":      int(opt.get("volume", 0) or 0),
-                "iv":          float(opt.get("iv", 0) or 0),
+                "iv":          iv if iv is not None else 0.0,
                 "delta":       0.0,
                 "theta":       0.0,
                 "vega":        0.0,

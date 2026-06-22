@@ -16,6 +16,7 @@ import {
 import { InstrumentTabs } from '../components/ui/InstrumentTabs'
 import { PageHeader, LiveBadge, ErrorBanner } from '../components/ui/Page'
 import { Skeleton } from '../components/ui/Skeleton'
+import { AnimatedNumber } from '../components/ui/AnimatedNumber'
 import { useInstrument } from '../lib/useInstrument'
 import { INSTRUMENTS } from '../api/endpoints'
 
@@ -86,7 +87,7 @@ function IndexCard({ label, loading, price, changePct, isSelected }: IndexCardPr
             <Skeleton className="mt-2 h-9 w-36" />
           ) : (
             <p className="mt-1 text-[2rem] font-bold leading-none tracking-tight text-slate-900">
-              {formatNumber(price)}
+              <AnimatedNumber value={price} format={(n) => formatNumber(n)} />
             </p>
           )}
           {loading ? (
@@ -94,7 +95,7 @@ function IndexCard({ label, loading, price, changePct, isSelected }: IndexCardPr
           ) : (
             <span
               className={`mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                up ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                up ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400'
               }`}
             >
               {formatSignedPct(changePct)}
@@ -126,7 +127,7 @@ function FuturesCard({ label, loading, data }: FuturesCardProps) {
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">{label}</p>
-            <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-600">
+            <span className="rounded-full bg-violet-50 dark:bg-violet-950/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-400">
               FUT
             </span>
           </div>
@@ -134,7 +135,7 @@ function FuturesCard({ label, loading, data }: FuturesCardProps) {
             <Skeleton className="mt-2 h-9 w-36" />
           ) : (
             <p className="mt-1 text-[2rem] font-bold leading-none tracking-tight text-slate-900">
-              {formatNumber(data?.last_price)}
+              <AnimatedNumber value={data?.last_price} format={(n) => formatNumber(n)} />
             </p>
           )}
           {loading ? (
@@ -142,7 +143,7 @@ function FuturesCard({ label, loading, data }: FuturesCardProps) {
           ) : (
             <span
               className={`mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                up ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                up ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400'
               }`}
             >
               {formatSignedPct(data?.change_pct)}
@@ -205,13 +206,13 @@ function VixCard({ loading, vix }: { loading: boolean; vix?: number }) {
         <Skeleton className="mt-2 h-9 w-24" />
       ) : (
         <p className="mt-1 text-[2rem] font-bold leading-none tracking-tight text-slate-900">
-          {formatNumber(vix)}
+          <AnimatedNumber value={vix} format={(n) => formatNumber(n)} />
         </p>
       )}
       {vix !== undefined && (
         <span
           className={`mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-            elevated ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'
+            elevated ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400' : 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400'
           }`}
         >
           {elevated ? '⚠ Elevated' : '✓ Calm'}

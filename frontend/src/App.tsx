@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { Navbar } from './components/Navbar'
+import { FloatingCopilot } from './components/FloatingCopilot'
 import { ToastProvider } from './components/ui/Toast'
 import { useAuthStore, REFRESH_TOKEN_KEY } from './stores/authStore'
 import { getMe, refresh } from './api/endpoints'
@@ -13,7 +14,7 @@ import { RegimePage } from './pages/RegimePage'
 import { SignalsPage } from './pages/SignalsPage'
 import { SmartMoneyPage } from './pages/SmartMoneyPage'
 import { InstitutionalPage } from './pages/InstitutionalPage'
-import { SentimentPage } from './pages/SentimentPage'
+import { AllInOnePage } from './pages/all-in-1/AllInOnePage'
 import { CopilotPage } from './pages/CopilotPage'
 import { AdvancedDashboardPage } from './pages/AdvancedDashboardPage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -80,12 +81,17 @@ function RequireAuth({ children }: { children: ReactNode }) {
 }
 
 function AppLayout() {
+  const location = useLocation()
   return (
     <div className="min-h-screen bg-surface">
       <Navbar />
       <main className="mx-auto max-w-[1400px] px-4 py-6 lg:px-6">
-        <Outlet />
+        {/* keyed by route so each page eases in on navigation */}
+        <div key={location.pathname} className="animate-page">
+          <Outlet />
+        </div>
       </main>
+      <FloatingCopilot />
     </div>
   )
 }
@@ -111,7 +117,7 @@ export default function App() {
             <Route path="/signals" element={<SignalsPage />} />
             <Route path="/smart-money" element={<SmartMoneyPage />} />
             <Route path="/institutional" element={<InstitutionalPage />} />
-            <Route path="/all-in-1" element={<SentimentPage />} />
+            <Route path="/all-in-1" element={<AllInOnePage />} />
             <Route path="/copilot" element={<CopilotPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>

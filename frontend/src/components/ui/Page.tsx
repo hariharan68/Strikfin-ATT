@@ -52,10 +52,33 @@ export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: (
   )
 }
 
-export function EmptyState({ message }: { message: string }) {
+function EmptyIcon() {
   return (
-    <div className="flex items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white px-4 py-10 text-sm text-slate-400">
-      {message}
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 3v18h18" />
+      <path d="M7 14l3-3 3 3 4-5" />
+    </svg>
+  )
+}
+
+export function EmptyState({
+  message,
+  hint,
+  icon,
+}: {
+  message: string
+  hint?: string
+  icon?: ReactNode
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-200 bg-white px-4 py-12 text-center">
+      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+        {icon ?? <EmptyIcon />}
+      </span>
+      <div>
+        <p className="text-sm font-medium text-slate-500">{message}</p>
+        {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
+      </div>
     </div>
   )
 }

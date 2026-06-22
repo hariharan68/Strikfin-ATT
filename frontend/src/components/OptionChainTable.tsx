@@ -5,12 +5,34 @@ const BUILDUP_STYLES: Record<string, string> = {
   'long build-up': 'bg-emerald-50 text-emerald-700 ring-emerald-200',
   'short build-up': 'bg-rose-50 text-rose-700 ring-rose-200',
   'short covering': 'bg-primary-50 text-primary-700 ring-primary-200',
-  'long unwinding': 'bg-amber-50 text-amber-700 ring-amber-200',
+  'long unwinding': 'bg-orange-50 text-orange-700 ring-orange-200',
 }
+
+/** Build-up types in legend order, with their dot colour. */
+const BUILDUP_LEGEND: { label: string; dot: string }[] = [
+  { label: 'Long Build-up', dot: 'bg-emerald-500' },
+  { label: 'Short Build-up', dot: 'bg-rose-500' },
+  { label: 'Long Unwinding', dot: 'bg-orange-500' },
+  { label: 'Short Covering', dot: 'bg-primary-500' },
+]
 
 function buildupStyle(label?: string): string {
   if (!label) return 'bg-slate-100 text-slate-500 ring-slate-200'
   return BUILDUP_STYLES[label.toLowerCase()] ?? 'bg-slate-100 text-slate-600 ring-slate-200'
+}
+
+/** Legend row explaining the build-up pill colours. */
+export function BuildupLegend({ className }: { className?: string }) {
+  return (
+    <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-1.5', className)}>
+      {BUILDUP_LEGEND.map((b) => (
+        <span key={b.label} className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+          <span className={cn('h-2.5 w-2.5 rounded-full', b.dot)} />
+          {b.label}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 export function BuildupBadge({ label }: { label?: string }) {
@@ -52,7 +74,7 @@ export function OptionChainTable({ rows, maxRows, atmStrike }: OptionChainTableP
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] text-sm">
+      <table className="table-rows w-full min-w-[640px] text-sm">
         <thead>
           <tr className="border-b border-slate-100 text-left text-xs font-medium uppercase tracking-wide text-slate-400">
             <th className="px-4 py-2.5">Strike</th>

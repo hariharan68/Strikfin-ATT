@@ -8,6 +8,7 @@ import {
 import { getErrorMessage } from '../api/client'
 import { useToast } from '../components/ui/Toast'
 import { cn } from '../lib/format'
+import { useTheme, type Theme } from '../lib/useTheme'
 
 /** How long to keep polling the status endpoint after the popup opens. */
 const POLL_INTERVAL_MS = 2000
@@ -138,9 +139,13 @@ export function SettingsPage() {
       <header className="mb-6">
         <h1 className="text-xl font-bold tracking-tight text-slate-900">Settings</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Manage broker connections and data sources for Alphalytic AI.
+          Personalise the look and feel of your workspace, and manage broker
+          connections for Alphalytic AI.
         </p>
       </header>
+
+      {/* Appearance / Theme picker */}
+      <ThemeSection />
 
       {/* Fyers broker card */}
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -216,6 +221,110 @@ export function SettingsPage() {
         </div>
       </section>
     </div>
+  )
+}
+
+// ── Theme picker ──────────────────────────────────────────────
+
+interface ThemeOption {
+  id: Theme
+  name: string
+  description: string
+  /** [page surface, card, accent] preview swatches. */
+  swatches: [string, string, string]
+}
+
+const THEME_OPTIONS: ThemeOption[] = [
+  {
+    id: 'classic',
+    name: 'Classic Blue',
+    description: 'Clean blue & white — the default look',
+    swatches: ['#f0f4f8', '#ffffff', '#2350e8'],
+  },
+  {
+    id: 'warm',
+    name: 'Warm Cream',
+    description: 'Terracotta & cream — easy on the eyes',
+    swatches: ['#f1e8df', '#fbf8f4', '#c0561f'],
+  },
+  {
+    id: 'dark',
+    name: 'Dark Mode',
+    description: 'Dark slate — low-light environments',
+    swatches: ['#0a0e16', '#141b27', '#2350e8'],
+  },
+]
+
+function ThemeSection() {
+  const { theme, setTheme } = useTheme()
+
+  return (
+    <section className="mb-6">
+      <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
+        Appearance — Theme
+      </h2>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {THEME_OPTIONS.map((opt) => (
+          <ThemeCard
+            key={opt.id}
+            option={opt}
+            active={theme === opt.id}
+            onSelect={() => setTheme(opt.id)}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ThemeCard({
+  option,
+  active,
+  onSelect,
+}: {
+  option: ThemeOption
+  active: boolean
+  onSelect: () => void
+}) {
+  const [surface, card, accent] = option.swatches
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={active}
+      className={cn(
+        'press relative overflow-hidden rounded-2xl border bg-white p-3 text-left shadow-sm transition-all',
+        active
+          ? 'border-primary-500 ring-2 ring-primary-500/30'
+          : 'border-slate-200 hover:border-slate-300',
+      )}
+    >
+      {active && (
+        <span className="absolute right-2 top-2 z-10 rounded-full bg-primary-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+          Active
+        </span>
+      )}
+
+      {/* Mini app preview */}
+      <div
+        className="flex h-24 flex-col gap-1.5 rounded-xl p-3"
+        style={{ backgroundColor: surface }}
+      >
+        <div
+          className="h-2 w-2/5 rounded-full"
+          style={{ backgroundColor: accent }}
+        />
+        <div className="mt-1 space-y-1.5 rounded-lg p-2" style={{ backgroundColor: card }}>
+          <div className="h-1.5 w-3/4 rounded-full bg-slate-300/70" />
+          <div className="h-1.5 w-1/2 rounded-full bg-slate-300/50" />
+        </div>
+      </div>
+
+      <div className="mt-3 px-1">
+        <p className="text-sm font-bold text-slate-900">{option.name}</p>
+        <p className="mt-0.5 text-xs text-slate-500">{option.description}</p>
+      </div>
+    </button>
   )
 }
 

@@ -8,6 +8,7 @@ import logging
 import traceback
 from datetime import datetime, timezone
 
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import OptionChainRow, OptionChainSnapshot
@@ -27,12 +28,56 @@ from app.engines.options_math import (
 )
 from app.ingestion.providers import get_option_chain, get_spot
 
+_IV_HISTORY_MIN = 20  # minimum snapshots needed for real percentile
+
 logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────
-# HELPER
+# HELPERS
 # ─────────────────────────────────────────────────────────────
+
+async def _historical_iv_percentile(
+    db: AsyncSession,
+    instrument_id: int,
+    current_iv: float,
+) -> tuple[float | None, str | None]:
+    """
+    Compute IV percentile as the fraction of historical ATM IV snapshots
+    that are <= current_iv. Uses the stored option_chain_rows joined to
+    snapshots where the row's strike == the snapshot's ATM strike.
+
+    Falls back to the proxy-band formula when fewer than _IV_HISTORY_MIN
+    data points exist (e.g. first day after deployment).
+    """
+    try:
+        # All historical ATM IVs for this instrument (CE + PE averaged per snap).
+        stmt = (
+            select(func.avg(OptionChainRow.iv).label("atm_iv"))
+            .join(OptionChainSnapshot, OptionChainRow.snapshot_id == OptionChainSnapshot.snapshot_id)
+            .where(
+                OptionChainSnapshot.instrument_id == instrument_id,
+                OptionChainRow.strike == OptionChainSnapshot.atm_strike,
+                OptionChainRow.iv > 0,
+            )
+            .group_by(OptionChainSnapshot.snapshot_id)
+        )
+        result = await db.execute(stmt)
+        history = [float(row.atm_iv) for row in result.fetchall()]
+
+        if len(history) < _IV_HISTORY_MIN:
+            pct = iv_percentile(current_iv)
+            return pct, iv_percentile_label(pct)
+
+        below = sum(1 for v in history if v <= current_iv)
+        pct   = round(below / len(history) * 100.0, 2)
+        return pct, iv_percentile_label(pct)
+
+    except Exception:
+        logger.warning("Historical IV percentile query failed; using proxy", exc_info=True)
+        pct = iv_percentile(current_iv)
+        return pct, iv_percentile_label(pct)
+
 
 def _to_engine_rows(
     raw_rows: list[dict],
@@ -104,9 +149,10 @@ class OptionsService:
         max_pain_val   = max_pain(engine_rows, strikes)
         walls          = oi_walls(engine_rows, spot)
         posture        = writing_posture(engine_rows)
-        atm_iv_val     = atm_iv(engine_rows, atm)
-        iv_pct_val     = iv_percentile(atm_iv_val)
-        iv_pct_label   = iv_percentile_label(iv_pct_val)
+        atm_iv_val                = atm_iv(engine_rows, atm)
+        iv_pct_val, iv_pct_label  = await _historical_iv_percentile(
+            self.db, instrument_id, atm_iv_val
+        ) if atm_iv_val is not None else (None, None)
 
         total_call = sum(r.oi for r in engine_rows if r.opt_type == "CE")
         total_put  = sum(r.oi for r in engine_rows if r.opt_type == "PE")

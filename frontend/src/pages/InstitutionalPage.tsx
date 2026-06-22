@@ -5,6 +5,7 @@ import { formatCrore, formatInt, formatDateTimeIST, formatTimeIST, cn } from '..
 import { MetricCard } from '../components/MetricCard'
 import { Panel, PanelHeader } from '../components/ui/Panel'
 import { PageHeader, ErrorBanner, LiveBadge } from '../components/ui/Page'
+import { AwaitingData } from '../components/ui/AwaitingData'
 import { SkeletonLines } from '../components/ui/Skeleton'
 
 function flowColor(value?: number): 'green' | 'red' | 'slate' {
@@ -55,13 +56,13 @@ export function InstitutionalPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
         {cards.map((c) => (
           <MetricCard
             key={c.label}
             label={c.label}
             loading={loading}
-            value={formatCrore(c.value)}
+            value={c.value === undefined ? <AwaitingData label="Available post-market" /> : formatCrore(c.value)}
             badge={c.value !== undefined ? (c.value >= 0 ? 'Inflow' : 'Outflow') : undefined}
             badgeColor={flowColor(c.value)}
           />

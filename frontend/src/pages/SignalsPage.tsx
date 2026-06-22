@@ -2,18 +2,38 @@ import { getLatestSignal } from '../api/endpoints'
 import type { SignalData } from '../api/endpoints'
 import { useFetch } from '../lib/useFetch'
 import { useInstrument } from '../lib/useInstrument'
-import { biasLabel, biasToTone, normalizeBias, toneClasses } from '../lib/format'
+import { biasLabel, biasToTone, cn, normalizeBias, toneClasses } from '../lib/format'
 import { BiasPill } from '../components/BiasPill'
 import { ConfidenceBadge } from '../components/ConfidenceBadge'
 import { Disclosure } from '../components/Disclosure'
+import { Markdown } from '../components/Markdown'
 import { Panel, PanelHeader } from '../components/ui/Panel'
 import { InstrumentTabs } from '../components/ui/InstrumentTabs'
+import { LiveClock } from '../components/ui/LiveClock'
 import { PageHeader, ErrorBanner } from '../components/ui/Page'
 import { Skeleton, SkeletonLines } from '../components/ui/Skeleton'
 
 function fmt(value: number | string | undefined): string {
   if (value === undefined || value === null || value === '') return '—'
   return String(value)
+}
+
+/** Extract a numeric risk:reward (handles "1:1.8", "1.8", numbers). */
+function parseRiskReward(value: number | string | undefined): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  if (typeof value === 'number') return value
+  const parts = String(value).split(/[:/]/).map((p) => parseFloat(p.trim()))
+  if (parts.length === 2 && parts[0] > 0 && !Number.isNaN(parts[1])) return parts[1] / parts[0]
+  const single = parseFloat(String(value))
+  return Number.isNaN(single) ? undefined : single
+}
+
+/** R:R colour: <1 red, 1–2 amber, >2 green. */
+function rrColorClass(rr?: number): string {
+  if (rr === undefined) return 'text-slate-900'
+  if (rr < 1) return 'text-rose-600'
+  if (rr <= 2) return 'text-amber-600'
+  return 'text-emerald-600'
 }
 
 export function SignalsPage() {
@@ -27,11 +47,21 @@ export function SignalsPage() {
   const bias = normalizeBias(data?.bias ?? data?.label)
   const tone = biasToTone(bias)
 
-  const riskRows = [
-    { label: 'Entry Ref', value: fmt(data?.entry_ref) },
+  const rr = parseRiskReward(data?.risk_reward)
+  const riskRows: {
+    label: string
+    value: string
+    hint?: string
+    valueClass?: string
+  }[] = [
+    {
+      label: 'Entry Ref',
+      value: fmt(data?.entry_ref),
+      hint: 'Reference Entry Price — Illustrative Only',
+    },
     { label: 'Stop Ref', value: fmt(data?.stop_ref) },
     { label: 'Target Ref', value: fmt(data?.target_ref) },
-    { label: 'Risk : Reward', value: fmt(data?.risk_reward) },
+    { label: 'Risk : Reward', value: fmt(data?.risk_reward), valueClass: rrColorClass(rr) },
   ]
 
   return (
@@ -39,7 +69,12 @@ export function SignalsPage() {
       <PageHeader
         title="AI Signals"
         subtitle="Latest model-generated directional bias"
-        right={<InstrumentTabs value={instrument} onChange={setInstrument} />}
+        right={
+          <>
+            <InstrumentTabs value={instrument} onChange={setInstrument} />
+            <LiveClock refreshing={loading} />
+          </>
+        }
       />
 
       {error && (
@@ -86,8 +121,18 @@ export function SignalsPage() {
             <div className="grid grid-cols-2 gap-px overflow-hidden rounded-b-xl bg-slate-100 sm:grid-cols-4">
               {riskRows.map((r) => (
                 <div key={r.label} className="bg-white p-4">
-                  <div className="text-xs text-slate-500">{r.label}</div>
-                  <div className="mt-1 text-lg font-bold text-slate-900">{r.value}</div>
+                  <div
+                    className={cn(
+                      'text-xs uppercase tracking-wide text-slate-500',
+                      r.hint && 'cursor-help underline decoration-dotted underline-offset-2',
+                    )}
+                    title={r.hint}
+                  >
+                    {r.label}
+                  </div>
+                  <div className={cn('mt-1 text-lg font-bold', r.valueClass ?? 'text-slate-900')}>
+                    {r.value}
+                  </div>
                 </div>
               ))}
             </div>
@@ -102,9 +147,9 @@ export function SignalsPage() {
           {loading ? (
             <SkeletonLines lines={3} />
           ) : (
-            <p className="text-sm leading-relaxed text-slate-600">
+            <Markdown className="text-sm text-slate-600">
               {data?.reasoning ?? 'No reasoning provided for the current signal.'}
-            </p>
+            </Markdown>
           )}
         </div>
       </Panel>

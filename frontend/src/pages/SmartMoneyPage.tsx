@@ -16,6 +16,7 @@ import {
 import { BiasPill } from '../components/BiasPill'
 import { Panel, PanelHeader } from '../components/ui/Panel'
 import { InstrumentTabs } from '../components/ui/InstrumentTabs'
+import { LiveClock } from '../components/ui/LiveClock'
 import { PageHeader, ErrorBanner, EmptyState } from '../components/ui/Page'
 import { Skeleton } from '../components/ui/Skeleton'
 
@@ -79,7 +80,12 @@ export function SmartMoneyPage() {
       <PageHeader
         title="Smart Money"
         subtitle="Where institutional positioning is concentrating"
-        right={<InstrumentTabs value={instrument} onChange={setInstrument} />}
+        right={
+          <>
+            <InstrumentTabs value={instrument} onChange={setInstrument} />
+            <LiveClock refreshing={loading} />
+          </>
+        }
       />
 
       {error && (
@@ -158,7 +164,7 @@ export function SmartMoneyPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] text-sm">
+            <table className="table-rows w-full min-w-[680px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs font-medium uppercase tracking-wide text-slate-400">
                   <th className="px-4 py-2.5">Strike</th>

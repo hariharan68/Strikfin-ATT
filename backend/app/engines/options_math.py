@@ -5,6 +5,7 @@ Pure options math functions.
 Zero DB, zero network, zero FastAPI imports.
 Every function is independently unit-testable.
 """
+import math
 from dataclasses import dataclass
 from typing import Optional
 
@@ -162,6 +163,77 @@ def atm_strike(spot: float, strikes: list[float]) -> float:
 # ─────────────────────────────────────────────────────────────
 # IMPLIED VOLATILITY
 # ─────────────────────────────────────────────────────────────
+
+# Fyers' option-chain feed does NOT return implied volatility or greeks
+# (only OI, LTP, volume). So we recover IV ourselves by inverting the
+# Black-76 pricing formula (European index options, priced off the
+# forward). India risk-free proxy ~6.5%.
+_RISK_FREE = 0.065
+
+
+def _norm_cdf(x: float) -> float:
+    """Standard normal CDF via the error function."""
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def black76_price(
+    opt_type: str,
+    forward:  float,
+    strike:   float,
+    t_years:  float,
+    sigma:    float,
+    r:        float = _RISK_FREE,
+) -> float:
+    """Black-76 price of a European CE/PE on a forward `forward`."""
+    if t_years <= 0 or sigma <= 0 or forward <= 0 or strike <= 0:
+        return 0.0
+    sqrt_t = math.sqrt(t_years)
+    d1 = (math.log(forward / strike) + 0.5 * sigma * sigma * t_years) / (sigma * sqrt_t)
+    d2 = d1 - sigma * sqrt_t
+    disc = math.exp(-r * t_years)
+    if opt_type == "CE":
+        return disc * (forward * _norm_cdf(d1) - strike * _norm_cdf(d2))
+    return disc * (strike * _norm_cdf(-d2) - forward * _norm_cdf(-d1))
+
+
+def implied_vol(
+    opt_type: str,
+    premium:  float,
+    forward:  float,
+    strike:   float,
+    t_years:  float,
+    r:        float = _RISK_FREE,
+) -> Optional[float]:
+    """
+    Implied volatility (in PERCENT) recovered from an option premium by
+    bisecting Black-76. Vega is positive and monotonic in sigma, so
+    bisection converges reliably. Returns None when the premium is
+    unusable (zero, below intrinsic, or non-convergent).
+    """
+    if premium <= 0 or forward <= 0 or strike <= 0 or t_years <= 0:
+        return None
+
+    disc = math.exp(-r * t_years)
+    intrinsic = (
+        disc * max(forward - strike, 0.0) if opt_type == "CE"
+        else disc * max(strike - forward, 0.0)
+    )
+    # Premium below intrinsic → stale/bad quote; can't imply a vol.
+    if premium < intrinsic - 0.01:
+        return None
+
+    lo, hi = 1e-4, 5.0  # sigma search bracket: 0.01% … 500%
+    for _ in range(100):
+        mid   = 0.5 * (lo + hi)
+        price = black76_price(opt_type, forward, strike, t_years, mid, r)
+        if abs(price - premium) < 0.01:
+            return round(mid * 100.0, 2)
+        if price > premium:
+            hi = mid
+        else:
+            lo = mid
+    return round(0.5 * (lo + hi) * 100.0, 2)
+
 
 def atm_iv(rows: list[ChainRow], atm: float) -> Optional[float]:
     """

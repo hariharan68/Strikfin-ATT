@@ -6,6 +6,7 @@ import { cn, toPercent, formatDateTimeIST } from '../lib/format'
 import { Panel } from '../components/ui/Panel'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { InstrumentTabs } from '../components/ui/InstrumentTabs'
+import { LiveClock } from '../components/ui/LiveClock'
 import { PageHeader, ErrorBanner, EmptyState } from '../components/ui/Page'
 import { Skeleton, SkeletonLines } from '../components/ui/Skeleton'
 
@@ -71,7 +72,12 @@ export function RegimePage() {
       <PageHeader
         title="Market Regime"
         subtitle="7-state regime classification"
-        right={<InstrumentTabs value={instrument} onChange={setInstrument} />}
+        right={
+          <>
+            <InstrumentTabs value={instrument} onChange={setInstrument} />
+            <LiveClock refreshing={loading} />
+          </>
+        }
       />
 
       {error && (
@@ -154,10 +160,10 @@ export function RegimePage() {
                 <span
                   key={t.code}
                   className={cn(
-                    'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+                    'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
                     active
-                      ? cn(t.soft, t.text, 'border-transparent ring-1 ring-inset', t.ring)
-                      : 'border-slate-200 text-slate-400',
+                      ? cn(t.bar, 'border-transparent text-white shadow-sm')
+                      : 'border-slate-200 bg-white text-slate-400',
                   )}
                 >
                   <span>{t.icon}</span>

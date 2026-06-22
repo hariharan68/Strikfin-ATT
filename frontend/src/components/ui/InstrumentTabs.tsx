@@ -24,7 +24,7 @@ export function InstrumentTabs({ value, onChange, className }: InstrumentTabsPro
             key={inst.id}
             onClick={() => onChange(inst.id)}
             className={cn(
-              'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
+              'press rounded-md px-4 py-1.5 text-sm font-medium',
               active
                 ? 'bg-primary-600 text-white shadow-sm'
                 : 'text-slate-500 hover:text-slate-800',

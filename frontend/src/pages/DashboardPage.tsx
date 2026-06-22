@@ -22,6 +22,9 @@ import { OptionChainTable } from '../components/OptionChainTable'
 import { InstrumentTabs } from '../components/ui/InstrumentTabs'
 import { PageHeader, LiveBadge, ErrorBanner } from '../components/ui/Page'
 import { Skeleton } from '../components/ui/Skeleton'
+import { AwaitingData } from '../components/ui/AwaitingData'
+import { AnimatedNumber } from '../components/ui/AnimatedNumber'
+import { Markdown } from '../components/Markdown'
 import { useInstrument } from '../lib/useInstrument'
 import { INSTRUMENTS } from '../api/endpoints'
 
@@ -103,12 +106,12 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Metric cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Metric cards — 4 across on desktop, 2×2 ≤768px, single column ≤480px */}
+      <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 md:grid-cols-4">
         <MetricCard
           label="NIFTY 50"
           loading={loading}
-          value={formatNumber(priceOf(nifty))}
+          value={<AnimatedNumber value={priceOf(nifty)} format={(n) => formatNumber(n)} />}
           badge={formatSignedPct(nifty?.change_pct)}
           badgeColor={(nifty?.change_pct ?? 0) >= 0 ? 'green' : 'red'}
           className={!isSensex ? 'ring-2 ring-primary-500 ring-offset-1' : undefined}
@@ -116,7 +119,7 @@ export function DashboardPage() {
         <MetricCard
           label="SENSEX"
           loading={loading}
-          value={formatNumber(priceOf(sensex))}
+          value={<AnimatedNumber value={priceOf(sensex)} format={(n) => formatNumber(n)} />}
           badge={formatSignedPct(sensex?.change_pct)}
           badgeColor={(sensex?.change_pct ?? 0) >= 0 ? 'green' : 'red'}
           className={isSensex ? 'ring-2 ring-primary-500 ring-offset-1' : undefined}
@@ -134,7 +137,7 @@ export function DashboardPage() {
         <MetricCard
           label="India VIX"
           loading={loading}
-          value={formatNumber(vix)}
+          value={<AnimatedNumber value={vix} format={(n) => formatNumber(n)} />}
           badge={vix !== undefined ? (vix > 16 ? 'Elevated' : 'Calm') : undefined}
           badgeColor={vix !== undefined && vix > 16 ? 'amber' : 'blue'}
         />
@@ -178,9 +181,9 @@ export function DashboardPage() {
                   <Skeleton className="h-4 w-2/3" />
                 </div>
               ) : (
-                <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                <Markdown className="mt-2 text-sm text-slate-600">
                   {summary ?? 'AI summary is not available right now.'}
-                </p>
+                </Markdown>
               )}
             </div>
           </div>
@@ -245,8 +248,18 @@ export function DashboardPage() {
           <Panel>
             <PanelHeader title="FII / DII Flow" icon="🏦" />
             <div className="grid grid-cols-2 gap-px overflow-hidden rounded-b-xl bg-slate-100">
-              <Stat label="FII Cash" value={formatCrore(inst?.fii_cash_net)} loading={loading} tone={inst?.fii_cash_net} />
-              <Stat label="DII Cash" value={formatCrore(inst?.dii_cash_net)} loading={loading} tone={inst?.dii_cash_net} />
+              <Stat
+                label="FII Cash"
+                value={inst?.fii_cash_net === undefined ? <AwaitingData /> : formatCrore(inst.fii_cash_net)}
+                loading={loading}
+                tone={inst?.fii_cash_net}
+              />
+              <Stat
+                label="DII Cash"
+                value={inst?.dii_cash_net === undefined ? <AwaitingData /> : formatCrore(inst.dii_cash_net)}
+                loading={loading}
+                tone={inst?.dii_cash_net}
+              />
             </div>
           </Panel>
 
@@ -294,7 +307,7 @@ function Stat({ label, value, loading, wide, tone }: StatProps) {
     tone === undefined ? 'text-slate-900' : tone > 0 ? 'text-emerald-600' : tone < 0 ? 'text-rose-600' : 'text-slate-900'
   return (
     <div className={cnWide(wide)}>
-      <dt className="text-xs text-slate-500">{label}</dt>
+      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
       {loading ? (
         <Skeleton className="mt-1 h-5 w-16" />
       ) : (
