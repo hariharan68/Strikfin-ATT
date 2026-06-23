@@ -196,6 +196,54 @@ def black76_price(
     return disc * (strike * _norm_cdf(-d2) - forward * _norm_cdf(-d1))
 
 
+def _norm_pdf(x: float) -> float:
+    """Standard normal probability density."""
+    return math.exp(-0.5 * x * x) / math.sqrt(2.0 * math.pi)
+
+
+def greeks(
+    opt_type: str,
+    forward:  float,
+    strike:   float,
+    t_years:  float,
+    sigma:    float,   # decimal, e.g. 0.13 for 13%
+    r:        float = _RISK_FREE,
+) -> dict[str, float]:
+    """
+    Black-76 greeks for a European CE/PE on a forward.
+      delta — per 1 pt move in the underlying
+      gamma — per 1 pt move (rate of change of delta)
+      vega  — per 1% change in IV
+      theta — per CALENDAR DAY (premium decay)
+    Returns zeros when inputs are degenerate (expiry/no-vol).
+    """
+    if t_years <= 0 or sigma <= 0 or forward <= 0 or strike <= 0:
+        return {"delta": 0.0, "gamma": 0.0, "vega": 0.0, "theta": 0.0}
+
+    sqrt_t = math.sqrt(t_years)
+    d1 = (math.log(forward / strike) + 0.5 * sigma * sigma * t_years) / (sigma * sqrt_t)
+    d2 = d1 - sigma * sqrt_t
+    disc = math.exp(-r * t_years)
+    nd1  = _norm_pdf(d1)
+
+    if opt_type == "CE":
+        delta = disc * _norm_cdf(d1)
+    else:
+        delta = disc * (_norm_cdf(d1) - 1.0)
+
+    gamma = disc * nd1 / (forward * sigma * sqrt_t)
+    vega  = forward * disc * nd1 * sqrt_t / 100.0
+    price = black76_price(opt_type, forward, strike, t_years, sigma, r)
+    theta = (r * price - forward * disc * nd1 * sigma / (2.0 * sqrt_t)) / 365.0
+
+    return {
+        "delta": round(delta, 4),
+        "gamma": round(gamma, 8),
+        "vega":  round(vega, 4),
+        "theta": round(theta, 4),
+    }
+
+
 def implied_vol(
     opt_type: str,
     premium:  float,
@@ -287,6 +335,74 @@ def iv_percentile_label(pct: Optional[float]) -> Optional[str]:
         return "Low"
     return "Very Low"
 
+# ─────────────────────────────────────────────────────────────
+# GAMMA EXPOSURE (GEX)
+# ─────────────────────────────────────────────────────────────
+
+# Contract lot sizes for notional scaling. Update if the exchange revises them.
+LOT_SIZE = {1: 75, 2: 20}  # 1=NIFTY, 2=SENSEX
+
+
+def net_gex(rows: list[dict], spot: float, lot_size: int) -> Optional[float]:
+    """
+    Dealer gamma exposure, in ₹ Crore per 1% spot move.
+
+    Convention: dealers are long calls / short puts, so call gamma adds and
+    put gamma subtracts.
+        Positive GEX → dealers dampen moves (price tends to PIN).
+        Negative GEX → dealers amplify moves (trend / breakout fuel).
+    Magnitude is a relative gauge, not an exact rupee figure.
+    """
+    if not spot or spot <= 0:
+        return None
+    total = 0.0
+    for r in rows:
+        g  = r.get("gamma") or 0.0
+        oi = r.get("oi") or 0
+        if g <= 0 or oi <= 0:
+            continue
+        sign = 1.0 if r.get("option_type") == "CE" else -1.0
+        total += sign * g * oi * lot_size
+    gex = total * spot * spot * 0.01      # ₹ per 1% move
+    return round(gex / 1e7, 2)            # → Crore
+
+
+def gamma_flip_strike(rows: list[dict], spot: float) -> Optional[float]:
+    """
+    Approximate zero-gamma level: the strike where cumulative signed
+    gamma·OI (summed low→high) flips sign. Price above tends to mean-revert;
+    below tends to trend.
+    """
+    by_strike: dict[float, float] = {}
+    for r in rows:
+        g  = r.get("gamma") or 0.0
+        oi = r.get("oi") or 0
+        if g <= 0 or oi <= 0:
+            continue
+        sign = 1.0 if r.get("option_type") == "CE" else -1.0
+        by_strike[r["strike"]] = by_strike.get(r["strike"], 0.0) + sign * g * oi
+
+    if not by_strike:
+        return None
+    cum = prev_cum = 0.0
+    prev_strike: Optional[float] = None
+    for k in sorted(by_strike):
+        cum += by_strike[k]
+        if prev_strike is not None and ((prev_cum < 0 <= cum) or (prev_cum > 0 >= cum)):
+            return prev_strike
+        prev_strike, prev_cum = k, cum
+    return None
+
+
+def gex_label(gex: Optional[float]) -> Optional[str]:
+    """Plain-English GEX regime."""
+    if gex is None:
+        return None
+    if gex > 0:
+        return "Positive — vol suppressed / pinned"
+    if gex < 0:
+        return "Negative — moves amplified"
+    return "Neutral"
 
 # ─────────────────────────────────────────────────────────────
 # WRITING POSTURE

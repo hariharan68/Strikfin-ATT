@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from app.engines.options_math import implied_vol
+from app.engines.options_math import implied_vol, greeks
 
 logger = logging.getLogger(__name__)
 
@@ -408,7 +409,11 @@ def _fetch_option_chain(
             ltp = float(opt.get("ltp", 0) or 0)
 
             # Fyers doesn't return IV — recover it from the premium.
+                        # Fyers doesn't return IV — recover it from the premium.
             iv = implied_vol(otype, ltp, forward or spot, strike, t_years)
+
+            # Greeks from the same Black-76 model (sigma in decimal).
+            g = greeks(otype, forward or spot, strike, t_years, (iv or 0.0) / 100.0)
 
             rows.append({
                 "strike":      strike,
@@ -418,10 +423,10 @@ def _fetch_option_chain(
                 "oi_change":   int(opt.get("oich", 0) or 0),
                 "volume":      int(opt.get("volume", 0) or 0),
                 "iv":          iv if iv is not None else 0.0,
-                "delta":       0.0,
-                "theta":       0.0,
-                "vega":        0.0,
-                "gamma":       0.0,
+                "delta":       g["delta"],
+                "theta":       g["theta"],
+                "vega":        g["vega"],
+                "gamma":       g["gamma"],
             })
             if otype == "CE":
                 total_call += oi

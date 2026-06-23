@@ -131,6 +131,9 @@ class OptionsMetrics(BaseModel):
     atm_iv:               Optional[float] = None
     iv_percentile:        Optional[float] = None
     iv_percentile_label:  Optional[str]   = None
+    net_gex:              Optional[float] = None
+    gamma_flip:           Optional[float] = None
+    gex_label:            Optional[str]   = None
 
 
 # ─────────────────────────────────────────────────────────────

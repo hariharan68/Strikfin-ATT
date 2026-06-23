@@ -29,27 +29,6 @@ function resolveIndex(data: DashboardData | null, id: number, key: 'nifty' | 'se
   return data[key] ?? data.indices?.find((i) => i.instrument_id === id)
 }
 
-// ── Sparkline ─────────────────────────────────────────────────
-function SparkLine({ color }: { color: string }) {
-  const points = [40, 52, 46, 61, 53, 67, 58, 72, 63, 76, 68, 70]
-  const max = Math.max(...points)
-  const min = Math.min(...points)
-  const norm = (v: number) => 100 - ((v - min) / (max - min)) * 70 - 15
-  const d = points
-    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${(i / (points.length - 1)) * 200} ${norm(p)}`)
-    .join(' ')
-  return (
-    <svg viewBox="0 0 200 100" className="h-10 w-24 opacity-60" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id={`sg-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={d} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
 
 // ── Volume formatter ───────────────────────────────────────────
 function formatVolume(v?: number): string {
@@ -66,13 +45,11 @@ interface IndexCardProps {
   loading: boolean
   price?: number
   changePct?: number
-  vix?: number
   isSelected: boolean
 }
 
 function IndexCard({ label, loading, price, changePct, isSelected }: IndexCardProps) {
   const up = (changePct ?? 0) >= 0
-  const color = up ? '#10b981' : '#f43f5e'
 
   return (
     <div
@@ -80,29 +57,26 @@ function IndexCard({ label, loading, price, changePct, isSelected }: IndexCardPr
         isSelected ? 'border-primary-400 ring-2 ring-primary-500 ring-offset-1' : 'border-slate-200'
       }`}
     >
-      <div className="flex items-start justify-between">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">{label}</p>
-          {loading ? (
-            <Skeleton className="mt-2 h-9 w-36" />
-          ) : (
-            <p className="mt-1 text-[2rem] font-bold leading-none tracking-tight text-slate-900">
-              <AnimatedNumber value={price} format={(n) => formatNumber(n)} />
-            </p>
-          )}
-          {loading ? (
-            <Skeleton className="mt-2 h-5 w-16" />
-          ) : (
-            <span
-              className={`mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                up ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400'
-              }`}
-            >
-              {formatSignedPct(changePct)}
-            </span>
-          )}
-        </div>
-        <SparkLine color={color} />
+      <div className="min-w-0">
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">{label}</p>
+        {loading ? (
+          <Skeleton className="mt-2 h-9 w-36" />
+        ) : (
+          <p className="mt-1 text-[2rem] font-bold leading-none tracking-tight text-slate-900">
+            <AnimatedNumber value={price} format={(n) => formatNumber(n)} />
+          </p>
+        )}
+        {loading ? (
+          <Skeleton className="mt-2 h-5 w-16" />
+        ) : (
+          <span
+            className={`mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+              up ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400'
+            }`}
+          >
+            {formatSignedPct(changePct)}
+          </span>
+        )}
       </div>
       <div className={`absolute bottom-0 left-0 h-1 w-full ${up ? 'bg-emerald-400' : 'bg-rose-400'}`} />
     </div>
@@ -118,39 +92,35 @@ interface FuturesCardProps {
 
 function FuturesCard({ label, loading, data }: FuturesCardProps) {
   const up = (data?.change_pct ?? 0) >= 0
-  const color = up ? '#10b981' : '#f43f5e'
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-shadow hover:shadow-md">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">{label}</p>
-            <span className="rounded-full bg-violet-50 dark:bg-violet-950/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-400">
-              FUT
-            </span>
-          </div>
-          {loading ? (
-            <Skeleton className="mt-2 h-9 w-36" />
-          ) : (
-            <p className="mt-1 text-[2rem] font-bold leading-none tracking-tight text-slate-900">
-              <AnimatedNumber value={data?.last_price} format={(n) => formatNumber(n)} />
-            </p>
-          )}
-          {loading ? (
-            <Skeleton className="mt-2 h-5 w-16" />
-          ) : (
-            <span
-              className={`mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                up ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400'
-              }`}
-            >
-              {formatSignedPct(data?.change_pct)}
-            </span>
-          )}
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">{label}</p>
+          <span className="rounded-full bg-violet-50 dark:bg-violet-950/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-400">
+            FUT
+          </span>
         </div>
-        <SparkLine color={color} />
+        {loading ? (
+          <Skeleton className="mt-2 h-9 w-36" />
+        ) : (
+          <p className="mt-1 text-[2rem] font-bold leading-none tracking-tight text-slate-900">
+            <AnimatedNumber value={data?.last_price} format={(n) => formatNumber(n)} />
+          </p>
+        )}
+        {loading ? (
+          <Skeleton className="mt-2 h-5 w-16" />
+        ) : (
+          <span
+            className={`mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+              up ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400'
+            }`}
+          >
+            {formatSignedPct(data?.change_pct)}
+          </span>
+        )}
       </div>
 
       {/* Volume + contract row */}
@@ -392,6 +362,39 @@ export function AdvancedDashboardPage() {
           }
           sub={optMetrics?.iv_percentile_label}
           subColor={ivBandColor(optMetrics?.iv_percentile_label)}
+          loading={optLoading}
+        />
+      </div>
+
+      {/* ── Gamma Exposure strip ── */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatTile
+          label="Net GEX (₹ Cr)"
+          value={
+            optMetrics?.net_gex !== undefined
+              ? formatNumber(optMetrics.net_gex, 0)
+              : '—'
+          }
+          sub={optMetrics?.gex_label}
+          subColor={
+            (optMetrics?.net_gex ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'
+          }
+          loading={optLoading}
+        />
+        <StatTile
+          label="Zero-Gamma Flip"
+          value={
+            optMetrics?.gamma_flip !== undefined
+              ? formatNumber(optMetrics.gamma_flip, 0)
+              : '—'
+          }
+          sub={
+            optMetrics?.gamma_flip && optMetrics?.spot
+              ? optMetrics.spot > optMetrics.gamma_flip
+                ? 'Spot above — pinning'
+                : 'Spot below — trending'
+              : undefined
+          }
           loading={optLoading}
         />
       </div>

@@ -167,6 +167,9 @@ export interface OptionsMetrics {
   iv_percentile?: number
   iv_percentile_label?: string
   updated_at?: string
+  net_gex?: number
+  gamma_flip?: number
+  gex_label?: string
 }
 
 export type BuildupLabel =
@@ -226,6 +229,9 @@ function mapOptionsMetrics(d: Record<string, unknown> | null | undefined): Optio
     iv_percentile: num(d.iv_percentile),
     iv_percentile_label:
       typeof d.iv_percentile_label === 'string' ? d.iv_percentile_label : undefined,
+          net_gex: num(d.net_gex),
+    gamma_flip: num(d.gamma_flip),
+    gex_label: typeof d.gex_label === 'string' ? d.gex_label : undefined,
     updated_at:
       (typeof d.snap_ts === 'string' && d.snap_ts) ||
       (typeof d.updated_at === 'string' && d.updated_at) ||

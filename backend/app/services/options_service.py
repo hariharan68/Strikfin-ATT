@@ -25,6 +25,10 @@ from app.engines.options_math import (
     pcr_oi,
     pcr_volume,
     writing_posture,
+    net_gex,
+    gamma_flip_strike,
+    gex_label,
+    LOT_SIZE,
 )
 from app.ingestion.providers import get_option_chain, get_spot
 
@@ -149,10 +153,16 @@ class OptionsService:
         max_pain_val   = max_pain(engine_rows, strikes)
         walls          = oi_walls(engine_rows, spot)
         posture        = writing_posture(engine_rows)
-        atm_iv_val                = atm_iv(engine_rows, atm)
+        atm_iv_val                = atm_iv(engine_rows, atm)  #need changes 
         iv_pct_val, iv_pct_label  = await _historical_iv_percentile(
             self.db, instrument_id, atm_iv_val
         ) if atm_iv_val is not None else (None, None)
+        
+        # Gamma exposure (raw_rows now carry per-strike gamma from provider)
+        lot          = LOT_SIZE.get(instrument_id, 75)
+        net_gex_val  = net_gex(raw_rows, spot, lot)
+        gamma_flip   = gamma_flip_strike(raw_rows, spot)
+        gex_lbl      = gex_label(net_gex_val)
 
         total_call = sum(r.oi for r in engine_rows if r.opt_type == "CE")
         total_put  = sum(r.oi for r in engine_rows if r.opt_type == "PE")
@@ -232,6 +242,9 @@ class OptionsService:
             atm_iv=atm_iv_val,
             iv_percentile=iv_pct_val,
             iv_percentile_label=iv_pct_label,
+            net_gex=net_gex_val,
+            gamma_flip=gamma_flip,
+            gex_label=gex_lbl,
         )
 
     async def get_chain_rows(
