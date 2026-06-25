@@ -221,27 +221,6 @@ class MarketSentiment(Base):
 
 
 # ─────────────────────────────────────────────────────────────
-# MARKET REGIME
-# ─────────────────────────────────────────────────────────────
-
-class MarketRegime(Base):
-    __tablename__ = "market_regime"
-
-    id:            Mapped[int]   = mapped_column(BIGINT, primary_key=True, autoincrement=True)
-    instrument_id: Mapped[int]   = mapped_column(SmallInteger, ForeignKey("instruments.instrument_id"), nullable=False)
-    as_of:         Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    regime:        Mapped[int]   = mapped_column(SmallInteger, nullable=False)
-    # 1 TrendUp 2 TrendDown 3 Sideways 4 Breakout 5 Reversal 6 HighVol 7 LowVol
-    confidence:    Mapped[float] = mapped_column(DECIMAL(6, 4), nullable=False)
-    model_version: Mapped[str]   = mapped_column(String(30), nullable=False)
-    features:      Mapped[Optional[str]] = mapped_column(TEXT, nullable=True)  # JSON
-
-    __table_args__ = (
-        Index("ix_regime_asof", "instrument_id", "as_of"),
-    )
-
-
-# ─────────────────────────────────────────────────────────────
 # SMART MONEY SIGNALS
 # ─────────────────────────────────────────────────────────────
 
@@ -286,6 +265,30 @@ class AITradeSignal(Base):
 
     __table_args__ = (
         Index("ix_ai_signals_asof", "instrument_id", "as_of"),
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# SIGNAL OUTCOMES  (accuracy tracking — closes the feedback loop)
+# ─────────────────────────────────────────────────────────────
+
+class SignalOutcome(Base):
+    __tablename__ = "signal_outcomes"
+
+    id:           Mapped[int]      = mapped_column(BIGINT, primary_key=True, autoincrement=True)
+    signal_id:    Mapped[int]      = mapped_column(BIGINT, ForeignKey("ai_trade_signals.id"), unique=True, nullable=False)
+    instrument_id:Mapped[int]      = mapped_column(SmallInteger, ForeignKey("instruments.instrument_id"), nullable=False)
+    bias:         Mapped[int]      = mapped_column(SmallInteger, nullable=False)  # 1 | 0 | -1
+    status:       Mapped[str]      = mapped_column(String(12), nullable=False)    # OPEN|WIN|LOSS|EXPIRED|NEUTRAL
+    realized_r:   Mapped[Optional[float]] = mapped_column(DECIMAL(8, 3), nullable=True)
+    exit_price:   Mapped[Optional[float]] = mapped_column(DECIMAL(12, 2), nullable=True)
+    bars_held:    Mapped[Optional[int]]   = mapped_column(Integer, nullable=True)
+    signal_as_of: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, nullable=False)
+
+    __table_args__ = (
+        Index("ix_outcome_lookup", "instrument_id", "status"),
+        Index("ix_outcome_signal", "signal_id"),
     )
 
 

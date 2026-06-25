@@ -167,11 +167,15 @@ class OptionsService:
         total_call = sum(r.oi for r in engine_rows if r.opt_type == "CE")
         total_put  = sum(r.oi for r in engine_rows if r.opt_type == "PE")
 
-        # Per-row buildup classification
+        # Per-row buildup classification.
+        # PE options move opposite to the underlying, so invert the price
+        # direction signal for puts to get correct buildup labels.
         classified_rows = []
         for r in raw_rows:
+            opt_type = r.get("option_type", "CE")
+            effective_chg = change_pct if opt_type == "CE" else -change_pct
             code, label = classify_buildup(
-                change_pct,
+                effective_chg,
                 r.get("oi_change", 0) or 0,
             )
             classified_rows.append({
@@ -277,8 +281,10 @@ class OptionsService:
 
         classified = []
         for r in raw_rows:
+            opt_type = r.get("option_type", "CE")
+            effective_chg = change_pct if opt_type == "CE" else -change_pct
             code, label = classify_buildup(
-                change_pct,
+                effective_chg,
                 r.get("oi_change", 0) or 0,
             )
             classified.append({

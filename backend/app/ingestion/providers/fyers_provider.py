@@ -319,6 +319,68 @@ def _fetch_futures(instrument_id: int) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
+# HISTORICAL CANDLES  (for ATR / ADX / realized vol)
+# ─────────────────────────────────────────────────────────────
+
+_HISTORY_TTL = 3600.0  # daily candles change once/day — cache an hour
+
+
+def get_history(instrument_id: int, days: int = 60, resolution: str = "D") -> dict:
+    """Cached wrapper around _fetch_history (daily OHLC by default)."""
+    return _serve(
+        ("history", instrument_id, days, resolution),
+        _HISTORY_TTL,
+        lambda: _fetch_history(instrument_id, days, resolution),
+    )
+
+
+def _fetch_history(instrument_id: int, days: int, resolution: str) -> dict:
+    """
+    Fetch historical OHLC candles for NIFTY/SENSEX from Fyers' history API.
+    Returns {"candles": [{ts, open, high, low, close, volume}, ...]} oldest→newest.
+    Falls back to mock candles on any error so ATR/ADX always have *something*
+    (callers still treat a short/None series as "no real data").
+    """
+    from datetime import timedelta
+    try:
+        fyers  = _get_fyers()
+        symbol = _SPOT_SYMBOLS.get(instrument_id, "NSE:NIFTY50-INDEX")
+        now    = datetime.now(timezone.utc)
+        payload = {
+            "symbol":      symbol,
+            "resolution":  resolution,
+            "date_format": "1",
+            "range_from":  (now - timedelta(days=days)).strftime("%Y-%m-%d"),
+            "range_to":    now.strftime("%Y-%m-%d"),
+            "cont_flag":   "1",
+        }
+        data = fyers.history(payload)
+        if data.get("code") != 200 or not data.get("candles"):
+            raise ValueError(f"Fyers history error: {data}")
+
+        candles = [
+            {
+                "ts":     int(c[0]),
+                "open":   float(c[1]),
+                "high":   float(c[2]),
+                "low":    float(c[3]),
+                "close":  float(c[4]),
+                "volume": int(c[5]) if len(c) > 5 else 0,
+            }
+            for c in data["candles"]
+        ]
+        logger.info(f"Fyers history: {_SYMBOLS[instrument_id]} {len(candles)} {resolution} candles")
+        return {"instrument_id": instrument_id, "candles": candles, "source": "fyers"}
+
+    except Exception as e:
+        logger.warning(f"Fyers history failed — falling back to mock: {e}")
+        from app.ingestion.providers.mock_provider import get_history as mock_history
+        result = mock_history(instrument_id, days, resolution)
+        result["source"] = "mock_fallback"
+        return result
+
+
+# ─────────────────────────────────────────────────────────────
 # OPTION CHAIN
 # ─────────────────────────────────────────────────────────────
 

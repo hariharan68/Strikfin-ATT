@@ -8,9 +8,10 @@ POST /api/v1/auth/refresh
 POST /api/v1/auth/logout
 GET  /api/v1/auth/me
 """
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Depends, Request, status
 
 from app.core.deps import DBSession, CurrentUserId
+from app.core.rate_limit import login_rate_limit
 from app.core.exceptions import to_http_exception, AppError
 from app.domain.schemas import (
     LoginRequest,
@@ -30,6 +31,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
     "/register",
     response_model=UserOut,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(login_rate_limit)],
 )
 async def register(
     body: RegisterRequest,
@@ -47,7 +49,11 @@ async def register(
 
 
 # ── Login ─────────────────────────────────────────────────────
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    dependencies=[Depends(login_rate_limit)],
+)
 async def login(
     body: LoginRequest,
     request: Request,

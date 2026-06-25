@@ -1,12 +1,10 @@
-import { getDashboard, getFutures, getOptionsMetrics, getShortCovering } from '../api/endpoints'
+import { getDashboard, getFutures, getOptionsMetrics } from '../api/endpoints'
 import type {
   DashboardData,
   FuturesSnapshot,
   IndexSnapshot,
   OptionsMetrics,
-  ShortCoveringData,
 } from '../api/endpoints'
-import { ShortCoveringRadar } from '../components/ShortCoveringRadar'
 import { useFetch } from '../lib/useFetch'
 import {
   formatNumber,
@@ -263,12 +261,6 @@ export function AdvancedDashboardPage() {
     { intervalMs: 30_000 },
   )
 
-  const { data: shortCovering, loading: scLoading } = useFetch<ShortCoveringData>(
-    () => getShortCovering(instrument as 1 | 2),
-    [instrument],
-    { intervalMs: 30_000 },
-  )
-
   const { data: optMetrics, loading: optLoading } = useFetch<OptionsMetrics>(
     () => getOptionsMetrics(instrument),
     [instrument],
@@ -398,16 +390,6 @@ export function AdvancedDashboardPage() {
           loading={optLoading}
         />
       </div>
-
-      {/* ── Short Covering Radar ── */}
-      <div className="flex items-center gap-3">
-        <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
-          Short Covering Radar · {instrumentLabel}
-        </h2>
-        <div className="flex-1 border-t border-slate-100" />
-      </div>
-
-      <ShortCoveringRadar data={shortCovering ?? null} loading={scLoading} />
     </div>
   )
 }

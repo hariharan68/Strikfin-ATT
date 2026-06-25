@@ -71,6 +71,11 @@ def classify_buildup(
     """
     Classifies position build-up from price and OI direction.
 
+    ``price_chg`` must be the *option's effective price direction*:
+    - For CE: pass the underlying spot change % as-is.
+    - For PE: pass the underlying spot change % **negated** (-change_pct),
+      because put premiums move opposite to the underlying.
+
     Returns (code, label):
         1  LONG_BUILDUP    price↑ oi↑
         2  SHORT_BUILDUP   price↓ oi↑
@@ -488,3 +493,71 @@ def trend_strength(closes: list[float], period: int = 14) -> float:
 
     adx = sum(dx_list[-period:]) / min(period, len(dx_list))
     return round(min(adx, 100.0), 2)
+
+
+# ─────────────────────────────────────────────────────────────
+# AVERAGE TRUE RANGE  (real volatility for stop/target sizing)
+# ─────────────────────────────────────────────────────────────
+
+def true_range(high: float, low: float, prev_close: float) -> float:
+    """
+    Single-bar True Range = max of:
+        high − low
+        |high − prev_close|
+        |low  − prev_close|
+    Captures gaps that a plain high−low range misses.
+    """
+    return max(
+        high - low,
+        abs(high - prev_close),
+        abs(low - prev_close),
+    )
+
+
+def atr(candles: list[dict], period: int = 20) -> Optional[float]:
+    """
+    Average True Range over `period` bars, in price points.
+
+    `candles` is a chronological list (oldest→newest) of dicts with
+    `high`, `low`, `close` keys (e.g. daily OHLC from the history feed).
+    The first bar seeds prev_close, so we need period+1 bars for a full
+    window. Returns None when there isn't enough data — callers must then
+    fall back rather than fabricate a value.
+    """
+    if not candles or len(candles) < period + 1:
+        return None
+    trs: list[float] = []
+    for i in range(1, len(candles)):
+        try:
+            h = float(candles[i]["high"])
+            lo = float(candles[i]["low"])
+            pc = float(candles[i - 1]["close"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        trs.append(true_range(h, lo, pc))
+    if len(trs) < period:
+        return None
+    return round(sum(trs[-period:]) / period, 2)
+
+
+def realized_vol(candles: list[dict], period: int = 20) -> Optional[float]:
+    """
+    Annualised realised volatility (decimal, e.g. 0.13 = 13%) from the
+    stdev of daily log returns over `period` bars. Comparable to India VIX
+    once multiplied by 100. Returns None on insufficient data.
+    """
+    if not candles or len(candles) < period + 1:
+        return None
+    closes = [float(c["close"]) for c in candles if c.get("close")]
+    if len(closes) < period + 1:
+        return None
+    rets: list[float] = []
+    for i in range(1, len(closes)):
+        if closes[i - 1] > 0:
+            rets.append(math.log(closes[i] / closes[i - 1]))
+    window = rets[-period:]
+    if len(window) < 2:
+        return None
+    mean = sum(window) / len(window)
+    var = sum((r - mean) ** 2 for r in window) / (len(window) - 1)
+    return round(math.sqrt(var) * math.sqrt(252.0), 4)

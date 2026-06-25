@@ -10,10 +10,12 @@ Institutional / Regime endpoints. No random mock inputs — so the
 dashboard bias is internally consistent with every other module page.
 """
 import hashlib
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db.models import AITradeSignal
 from app.domain.schemas import AISignalOut
 from app.engines.options_math import (
@@ -25,8 +27,8 @@ from app.engines.options_math import (
     writing_posture,
     atm_strike,
 )
-from app.engines.regime import RegimeFeatures, classify_regime
 from app.engines.synthesizer import SignalInputs, bias_label, synthesize
+from app.services.market_history import get_market_features
 from app.ingestion.providers import (
     get_institutional_activity,
     get_news_headlines,
@@ -68,7 +70,9 @@ def _derive_smart_money(raw_rows: list[dict], change_pct: float) -> tuple[int, f
         strength = min(abs(oi_chg) / max(oi, 1), 1.0)
         if strength < 0.02:
             continue
-        code, _ = classify_buildup(change_pct, oi_chg)
+        opt_type = r.get("option_type", "CE")
+        effective_chg = change_pct if opt_type == "CE" else -change_pct
+        code, _ = classify_buildup(effective_chg, oi_chg)
         if code in (1, 3):       # LONG_BUILDUP, SHORT_COVERING → bullish
             bull += strength
         elif code in (2, 4):     # SHORT_BUILDUP, LONG_UNWINDING → bearish
@@ -179,7 +183,11 @@ class SignalService:
         else:
             oi_buildup = "SHORT_COVERING"
 
-        atr_20 = round(spot * 0.015, 2)
+        # Real volatility/trend features from daily history (ATR, ADX,
+        # 5-day return, range compression). Falls back to a flagged neutral
+        # set when history is unavailable — see _atr_or_proxy below.
+        feats  = get_market_features(instrument_id)
+        atr_20 = feats.atr_20 if feats.atr_20 else round(spot * 0.015, 2)
 
         # ── 3. Derive REAL module inputs ──────────────────────
         # Smart money — strength-weighted per-strike build-up
@@ -193,35 +201,8 @@ class SignalService:
         # Sentiment — category-weighted news score
         sentiment_score, sentiment_conf = _derive_sentiment()
 
-        # Regime — rule-based classification on live features.
-        # return_5d / range_compression need history not present in a
-        # single snapshot, so they default to honest neutral values
-        # rather than random noise.
-        vix_pct = _clamp((vix - 10.0) / 20.0, 0.0, 1.0)
-        spot_vs_max_pain = (
-            (spot - max_pain_val) / spot if max_pain_val else 0.0
-        )
-        regime_features = RegimeFeatures(
-            return_1d=change_pct,
-            return_5d=change_pct,
-            trend_strength=_clamp(abs(change_pct) * 15.0, 0.0, 60.0),
-            range_compression=1.0,
-            india_vix=vix,
-            vix_percentile=vix_pct,
-            realized_vol_pct=vix_pct * 0.9,
-            pcr_oi=pcr,
-            oi_buildup=oi_buildup,
-            writing_posture=posture,
-            spot_vs_max_pain=spot_vs_max_pain,
-            fii_cash_net_cr=fii_net_cr,
-            fii_fut_bias=fii_fut_bias,
-        )
-        regime_code, regime_confidence, _ = classify_regime(regime_features)
-
         # ── 4. Synthesize ─────────────────────────────────────
         inputs = SignalInputs(
-            regime_code=regime_code,
-            regime_confidence=regime_confidence,
             pcr_oi=pcr,
             writing_posture=posture,
             oi_buildup=oi_buildup,
@@ -241,21 +222,44 @@ class SignalService:
         result = synthesize(inputs)
         now    = datetime.now(timezone.utc)
 
-        # ── 5. Persist ────────────────────────────────────────
-        self.db.add(AITradeSignal(
-            instrument_id=instrument_id,
-            as_of=now,
-            bias=result.bias,
-            entry_ref=result.entry_ref,
-            stop_ref=result.stop_ref,
-            target_ref=result.target_ref,
-            risk_reward=result.risk_reward,
-            confidence=result.confidence,
-            reasoning=result.reasoning,
-            disclosure_mode=DISCLOSURE_MODE,
-            model_version=MODEL_VERSION,
-        ))
-        await self.db.commit()
+        # ── 5. Persist (deduplicated) ─────────────────────────
+        # This method runs on every read (frontend polls every ~10-30s), so
+        # writing a row each time would flood the table with near-duplicates.
+        # Only persist when the signal is meaningfully new: no prior row, the
+        # last row is older than the configured interval, or the bias flipped.
+        prev = (
+            await self.db.execute(
+                select(AITradeSignal)
+                .where(AITradeSignal.instrument_id == instrument_id)
+                .order_by(AITradeSignal.as_of.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+        min_interval = timedelta(
+            minutes=settings.SIGNAL_PERSIST_MIN_INTERVAL_MINUTES,
+        )
+        should_persist = (
+            prev is None
+            or (now - prev.as_of.replace(tzinfo=timezone.utc)) >= min_interval
+            or prev.bias != result.bias
+        )
+
+        if should_persist:
+            self.db.add(AITradeSignal(
+                instrument_id=instrument_id,
+                as_of=now,
+                bias=result.bias,
+                entry_ref=result.entry_ref,
+                stop_ref=result.stop_ref,
+                target_ref=result.target_ref,
+                risk_reward=result.risk_reward,
+                confidence=result.confidence,
+                reasoning=result.reasoning,
+                disclosure_mode=DISCLOSURE_MODE,
+                model_version=MODEL_VERSION,
+            ))
+            await self.db.commit()
 
         # ── 6. Return schema ──────────────────────────────────
         return AISignalOut(

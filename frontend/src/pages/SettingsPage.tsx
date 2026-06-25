@@ -263,7 +263,7 @@ function ThemeSection() {
       <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
         Appearance — Theme
       </h2>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {THEME_OPTIONS.map((opt) => (
           <ThemeCard
             key={opt.id}

@@ -137,20 +137,6 @@ class OptionsMetrics(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────
-# REGIME
-# ─────────────────────────────────────────────────────────────
-
-class RegimeRead(BaseModel):
-    instrument_id: int
-    as_of:         datetime
-    regime:        int
-    regime_label:  str
-    confidence:    float
-    top_features:  dict
-    model_version: str
-
-
-# ─────────────────────────────────────────────────────────────
 # SMART MONEY
 # ─────────────────────────────────────────────────────────────
 
@@ -229,8 +215,6 @@ class DashboardSnapshot(BaseModel):
     market_hours:   bool
     nifty:          Optional[dict]
     sensex:         Optional[dict]
-    nifty_regime:   Optional[RegimeRead]
-    sensex_regime:  Optional[RegimeRead]
     nifty_signal:   Optional[AISignalOut]
     sensex_signal:  Optional[AISignalOut]
     institutional:  Optional[InstitutionalRead]

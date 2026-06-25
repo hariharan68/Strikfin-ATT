@@ -20,10 +20,6 @@ from typing import Optional
 
 @dataclass
 class SignalInputs:
-    # Regime
-    regime_code:             int    # 1–7
-    regime_confidence:       float  # 0–1
-
     # Options
     pcr_oi:                  float
     writing_posture:         str    # CALL_WRITERS_DOMINANT | PUT_WRITERS_DOMINANT | BALANCED
@@ -68,12 +64,11 @@ def synthesize(inp: SignalInputs) -> SynthesizedSignal:
     Weighted vote across all intelligence modules.
 
     Weights:
-        Regime       3.0
         OI / Options 2.5
         Smart Money  2.0
         FII          1.5
         Sentiment    1.0
-        Total       10.0
+        Total        7.0
 
     bias_score > 0  → Bullish
     bias_score < 0  → Bearish
@@ -82,32 +77,6 @@ def synthesize(inp: SignalInputs) -> SynthesizedSignal:
     bias_score   = 0.0
     weight_used  = 0.0
     evidence: dict[str, str] = {}
-
-    # ── Regime (3.0) ──────────────────────────────────────────
-    w = 3.0
-    code = inp.regime_code
-    conf = inp.regime_confidence
-
-    if code == 1:   # TREND_UP
-        bias_score += w * conf
-        evidence["regime"] = f"Trend Up ({conf:.0%} conf)"
-    elif code == 2:  # TREND_DOWN
-        bias_score -= w * conf
-        evidence["regime"] = f"Trend Down ({conf:.0%} conf)"
-    elif code == 4:  # BREAKOUT
-        direction = 1 if inp.oi_buildup == "LONG_BUILDUP" else -1
-        bias_score += direction * w * 0.8 * conf
-        evidence["regime"] = f"Breakout {'up' if direction > 0 else 'down'} ({conf:.0%} conf)"
-    elif code == 5:  # REVERSAL
-        direction = -1 if inp.oi_buildup == "LONG_UNWINDING" else 1
-        bias_score += direction * w * 0.5 * conf
-        evidence["regime"] = f"Reversal forming ({conf:.0%} conf)"
-    elif code == 6:  # HIGH_VOL
-        evidence["regime"] = "High Volatility — wide moves possible, bias neutral"
-    elif code in (3, 7):  # SIDEWAYS | LOW_VOL
-        evidence["regime"] = f"{'Sideways' if code == 3 else 'Low Vol'} — neutral regime"
-
-    weight_used += w
 
     # ── OI Build-up (2.5) ─────────────────────────────────────
     w = 2.5

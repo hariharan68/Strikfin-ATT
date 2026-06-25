@@ -40,6 +40,14 @@ def get_futures(instrument_id: int) -> dict:
     return _get_futures(instrument_id)
 
 
+def get_history(instrument_id: int, days: int = 60, resolution: str = "D") -> dict:
+    if settings.MARKET_DATA_VENDOR == "fyers":
+        from app.ingestion.providers.fyers_provider import get_history as _get_history
+        return _get_history(instrument_id, days, resolution)
+    from app.ingestion.providers.mock_provider import get_history as _get_history
+    return _get_history(instrument_id, days, resolution)
+
+
 def get_news_headlines(limit: int = 8) -> list:
     """News is mock-only — Fyers does not provide a news feed."""
     from app.ingestion.providers.mock_provider import get_news_headlines as _fn

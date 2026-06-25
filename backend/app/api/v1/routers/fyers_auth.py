@@ -19,12 +19,14 @@ Step 4: DELETE /api/v1/auth/fyers/token
         → Clear token (logout from Fyers)
 """
 import hashlib
+import html
 import logging
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import HTMLResponse
 
 from app.core.config import settings
+from app.core.deps import CurrentUserId
 from app.core.token_store import (
     clear_access_token,
     get_token_info,
@@ -193,7 +195,7 @@ async def fyers_status():
 # ─────────────────────────────────────────────────────────────
 
 @router.delete("/token")
-async def clear_fyers_token():
+async def clear_fyers_token(_uid: CurrentUserId):
     """Clear the Fyers access token."""
     clear_access_token()
     return {"message": "Fyers token cleared successfully"}
@@ -204,7 +206,7 @@ async def clear_fyers_token():
 # ─────────────────────────────────────────────────────────────
 
 @router.get("/debug/chain/{instrument_id}")
-async def debug_chain(instrument_id: int):
+async def debug_chain(instrument_id: int, _uid: CurrentUserId):
     """
     Returns the raw Fyers optionchain response for inspection.
     Uses the shared, correctly-authenticated client (raw access token).
@@ -232,7 +234,7 @@ async def debug_chain(instrument_id: int):
 # ─────────────────────────────────────────────────────────────
 
 @router.post("/token")
-async def set_fyers_token_manually(payload: dict):
+async def set_fyers_token_manually(payload: dict, _uid: CurrentUserId):
     """
     Manually set a Fyers access token.
     Useful when you generate the token externally.
@@ -346,6 +348,9 @@ def _success_page() -> str:
 
 
 def _error_page(error: str) -> str:
+    # Escape the error message — it can contain content from upstream
+    # (Fyers SDK exceptions) and must never be rendered as raw HTML.
+    error = html.escape(error)
     return f"""
     <!DOCTYPE html>
     <html>

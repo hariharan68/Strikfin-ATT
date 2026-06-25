@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { getDashboard } from '../api/endpoints'
 import type { DashboardData, IndexSnapshot } from '../api/endpoints'
@@ -17,7 +18,7 @@ import { MetricCard } from '../components/MetricCard'
 import { BiasPill } from '../components/BiasPill'
 import { Disclosure } from '../components/Disclosure'
 import { Panel, PanelHeader } from '../components/ui/Panel'
-import { ProgressBar } from '../components/ui/ProgressBar'
+
 import { OptionChainTable } from '../components/OptionChainTable'
 import { InstrumentTabs } from '../components/ui/InstrumentTabs'
 import { PageHeader, LiveBadge, ErrorBanner } from '../components/ui/Page'
@@ -58,9 +59,8 @@ export function DashboardPage() {
   const nifty = resolveIndex(data, 1, 'nifty')
   const sensex = resolveIndex(data, 2, 'sensex')
 
-  // Instrument-aware "focused" slice — drives the bias, regime and options panels.
+  // Instrument-aware "focused" slice — drives the bias and options panels.
   const selected = isSensex ? sensex : nifty
-  const selectedRegime = (isSensex ? data?.sensex_regime : data?.nifty_regime) ?? data?.regime
   const selectedSignal = isSensex ? data?.sensex_signal : data?.nifty_signal
 
   const vix = selected?.india_vix ?? data?.india_vix ?? data?.vix
@@ -69,13 +69,6 @@ export function DashboardPage() {
   )
   const biasConfidence = selectedSignal?.confidence ?? data?.ai_bias?.confidence
   const summary = data?.ai_summary ?? data?.summary
-  const regime = selectedRegime
-  const regimeEvidence: string[] =
-    regime?.evidence && regime.evidence.length > 0
-      ? regime.evidence
-          .map((e) => e.title ?? e.name ?? e.detail ?? e.description)
-          .filter((s): s is string => Boolean(s))
-      : Object.entries(regime?.top_features ?? {}).map(([k, v]) => `${k}: ${v}`)
   // Options metrics: prefer a full options block, else derive from the focused index card.
   const options = data?.options ?? {
     pcr_oi: selected?.pcr_oi,
@@ -86,6 +79,19 @@ export function DashboardPage() {
   const inst = data?.institutional
   const chain = data?.option_chain ?? []
   const updatedAt = data?.as_of ?? data?.generated_at ?? data?.updated_at
+
+  // Filter to 5 strikes nearest ATM (2 below, ATM, 2 above) = 10 rows with CE+PE.
+  const atmChain = useMemo(() => {
+    const atm = selected?.atm_strike ?? data?.nifty?.atm_strike
+    if (!atm || chain.length === 0) return chain
+    const uniqueStrikes = [...new Set(chain.map((r) => r.strike))].sort(
+      (a, b) => Math.abs(a - atm) - Math.abs(b - atm),
+    )
+    const nearSet = new Set(uniqueStrikes.slice(0, 5))
+    return chain
+      .filter((r) => nearSet.has(r.strike))
+      .sort((a, b) => a.strike - b.strike || (a.type === 'PE' ? -1 : 1))
+  }, [chain, selected?.atm_strike, data?.nifty?.atm_strike])
 
   return (
     <div>
@@ -161,9 +167,8 @@ export function DashboardPage() {
               </p>
             ) : (
               <OptionChainTable
-                rows={chain}
-                maxRows={10}
-                atmStrike={selected?.atm_strike ?? data?.options?.atm_strike}
+                rows={atmChain}
+                atmStrike={selected?.atm_strike ?? data?.nifty?.atm_strike ?? data?.options?.atm_strike}
               />
             )}
           </Panel>
@@ -206,42 +211,6 @@ export function DashboardPage() {
                 wide
               />
             </dl>
-          </Panel>
-
-          {/* Market regime */}
-          <Panel>
-            <PanelHeader title="Market Regime" icon="📈" />
-            <div className="p-5">
-              {loading ? (
-                <Skeleton className="h-6 w-40" />
-              ) : (
-                <>
-                  <div className="flex items-center justify-between">
-                    <span className="text-lg font-bold text-slate-900">
-                      {regime?.regime_label ?? regime?.label ?? regime?.state ?? '—'}
-                    </span>
-                    {regime?.confidence !== undefined && (
-                      <span className="text-sm font-semibold text-primary-600">
-                        {Math.round(regime.confidence <= 1 ? regime.confidence * 100 : regime.confidence)}%
-                      </span>
-                    )}
-                  </div>
-                  {regime?.confidence !== undefined && (
-                    <ProgressBar value={regime.confidence} className="mt-3" />
-                  )}
-                  {regimeEvidence.length > 0 && (
-                    <ul className="mt-4 space-y-1.5 text-xs text-slate-500">
-                      {regimeEvidence.slice(0, 4).map((e, i) => (
-                        <li key={i} className="flex gap-2">
-                          <span className="text-primary-400">•</span>
-                          <span>{e}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              )}
-            </div>
           </Panel>
 
           {/* FII / DII */}

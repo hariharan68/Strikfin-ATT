@@ -4,7 +4,6 @@ import type {
   IndexLevels,
   OptionsMetrics,
   OptionChainRow,
-  RegimeData,
   SignalData,
   SmartMoneyData,
   InstitutionalData,
@@ -22,13 +21,28 @@ export interface AllInOneContext {
   levels?: IndexLevels
   optionsMetrics?: OptionsMetrics
   chain?: OptionChainRow[]
-  regime?: RegimeData
   signal?: SignalData
   smartMoney?: SmartMoneyData
   institutional?: InstitutionalData
   sentiment?: SentimentData
   shortCovering?: ShortCoveringData
 }
+
+/**
+ * Which live feed(s) a factor reads from. `useAllInOne` fetches each source
+ * once per instrument and derives a per-card status from these keys so a single
+ * failed/slow feed only degrades the cards that depend on it.
+ */
+export type SourceKey = 'snapshot' | 'levels' | 'optionsMetrics' | 'chain' | 'signal'
+
+/**
+ * Live-data status for one factor card.
+ * - `ok`        — its feed(s) returned data; show the computed reading.
+ * - `loading`   — first load of a feed it needs is still in flight.
+ * - `error`     — a feed it needs failed and has no data → show "Unavailable",
+ *                 never a stale/blank value.
+ */
+export type FactorStatus = 'ok' | 'loading' | 'error'
 
 /** The output of one factor's analysis — drives a single FactorCard tile. */
 export interface FactorReading {
@@ -40,8 +54,13 @@ export interface FactorReading {
   bias: BiasValue
   /** Expandable "explain the reasoning" bullet points. */
   reasoning: string[]
-  /** True when the underlying data isn't available yet (backend gap). */
+  /** True when the underlying data isn't available yet (backend gap → "Soon"). */
   blocked?: boolean
+  /**
+   * Live-feed status, attached by `useAllInOne` for active (non-blocked)
+   * factors. Undefined for blocked "Soon" cards, which never fetch.
+   */
+  status?: FactorStatus
 }
 
 /**
@@ -55,6 +74,12 @@ export interface FactorModule {
   title: string
   /** Emoji or short glyph shown on the tile. */
   icon: string
+  /**
+   * Live feeds this factor reads. The card's status is derived from these:
+   * `loading` while any is first-loading, `error` if any failed with no data,
+   * else `ok`. Omitted for blocked "Soon" cards (they never fetch).
+   */
+  sources?: SourceKey[]
   compute: (ctx: AllInOneContext) => FactorReading
 }
 

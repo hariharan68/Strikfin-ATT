@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # ── Application ───────────────────────────────────────────
     APP_NAME: str = "Alphalytic AI"
     APP_ENV: Literal["development", "production"] = "development"
-    DEBUG: bool = True
+    DEBUG: bool = False
 
     # ── Auth ──────────────────────────────────────────────────
     SECRET_KEY: str
@@ -52,6 +52,16 @@ class Settings(BaseSettings):
 
     # ── Market Data ───────────────────────────────────────────
     MARKET_DATA_VENDOR: Literal["mock", "fyers"] = "mock"
+
+    # ── Ingestion & signal scoring ────────────────────────────
+    # Background loop that snapshots index/option data into the history tables
+    # (powers real ATR/ADX/IV-percentile and signal-outcome scoring).
+    INGEST_ENABLED: bool = True
+    INGEST_INTERVAL_SECONDS: int = 60          # 1-min index snapshots
+    SCORER_INTERVAL_SECONDS: int = 900         # re-score signals every 15 min
+    SIGNAL_EVAL_HORIZON_HOURS: int = 6         # one session before EXPIRED settle
+    INGEST_MARKET_HOURS_ONLY: bool = True      # skip nights/weekends
+    SIGNAL_PERSIST_MIN_INTERVAL_MINUTES: int = 5  # dedupe: min gap between same-bias rows
 
     # ── LLM ───────────────────────────────────────────────────
     LLM_PROVIDER: Literal["openai", "anthropic", "none"] = "none"

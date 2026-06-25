@@ -6,6 +6,7 @@ AI copilot grounded in live platform data.
 Answers market questions — never gives personalized advice.
 """
 import json
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
@@ -15,9 +16,9 @@ from app.core.deps import CurrentUserId, DBSession
 from app.domain.schemas import CopilotRequest, CopilotResponse
 from app.engines.options_math import ChainRow, oi_walls, pcr_oi
 from app.ingestion.providers import get_news_headlines, get_option_chain, get_spot
-from app.services.regime_service import RegimeService
 from app.services.signal_service import SignalService
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/copilot", tags=["copilot"])
 
 # ─────────────────────────────────────────────────────────────
@@ -42,7 +43,7 @@ STRICT RULES — never violate these:
 7. End every response with:
    "This is AI-generated market intelligence, not investment advice."
 
-You have access to: regime, PCR, OI walls, AI bias,
+You have access to: PCR, OI walls, AI bias,
 FII/DII flows, sentiment scores, and recent headlines.
 """.strip()
 
@@ -82,28 +83,23 @@ async def _build_context(
     walls = oi_walls(engine_rows, spot)
     pcr   = pcr_oi(engine_rows)
 
-    regime_svc = RegimeService(db)
     signal_svc = SignalService(db)
-
-    regime = await regime_svc.get_current_regime(inst_id)
     signal = await signal_svc.get_latest_signal(inst_id)
 
     headlines = get_news_headlines(5)
 
     return {
-        "instrument":        "NIFTY50" if inst_id == 1 else "SENSEX",
-        "spot":              spot,
-        "change_pct":        change_pct,
-        "india_vix":         spot_data.get("india_vix"),
-        "pcr_oi":            pcr,
-        "support":           walls.get("support"),
-        "resistance":        walls.get("resistance"),
-        "regime":            regime.regime_label,
-        "regime_confidence": regime.confidence,
-        "ai_bias":           signal.bias_label,
-        "ai_confidence":     signal.confidence,
-        "ai_reasoning":      signal.reasoning,
-        "recent_headlines":  [h["headline"] for h in headlines[:3]],
+        "instrument":       "NIFTY50" if inst_id == 1 else "SENSEX",
+        "spot":             spot,
+        "change_pct":       change_pct,
+        "india_vix":        spot_data.get("india_vix"),
+        "pcr_oi":           pcr,
+        "support":          walls.get("support"),
+        "resistance":       walls.get("resistance"),
+        "ai_bias":          signal.bias_label,
+        "ai_confidence":    signal.confidence,
+        "ai_reasoning":     signal.reasoning,
+        "recent_headlines": [h["headline"] for h in headlines[:3]],
     }
 
 
@@ -128,8 +124,6 @@ def _rule_based_answer(question: str, ctx: dict) -> str:
         return (
             f"{ctx['instrument']} is showing a **{ctx['ai_bias']}** bias "
             f"with {ctx['ai_confidence']:.0%} confidence. "
-            f"Current regime: **{ctx['regime']}** "
-            f"({ctx['regime_confidence']:.0%}). "
             f"PCR at {ctx['pcr_oi']:.2f}. "
             f"{DISCLOSURE}"
         )
@@ -157,7 +151,6 @@ def _rule_based_answer(question: str, ctx: dict) -> str:
             read = "in neutral range"
         return (
             f"Current PCR (OI) for {ctx['instrument']} is **{pcr:.2f}** — {read}. "
-            f"Regime context: {ctx['regime']}. "
             f"{DISCLOSURE}"
         )
 
@@ -173,16 +166,6 @@ def _rule_based_answer(question: str, ctx: dict) -> str:
             f"India VIX is at **{vix}** — {read}. "
             f"VIX above 20 signals elevated anxiety. "
             f"Below 14 signals compressed volatility. "
-            f"Current regime: {ctx['regime']}. "
-            f"{DISCLOSURE}"
-        )
-
-    # ── Regime ────────────────────────────────────────────────
-    if any(w in q for w in ["regime", "trend", "sideways", "breakout"]):
-        return (
-            f"{ctx['instrument']} is in a **{ctx['regime']}** regime "
-            f"with {ctx['regime_confidence']:.0%} confidence. "
-            f"AI reasoning: {ctx['ai_reasoning'][:120]}. "
             f"{DISCLOSURE}"
         )
 
@@ -200,13 +183,12 @@ def _rule_based_answer(question: str, ctx: dict) -> str:
         f"{ctx['instrument']} snapshot — "
         f"Spot: {ctx['spot']} | "
         f"Change: {ctx['change_pct']:+.2f}% | "
-        f"Regime: **{ctx['regime']}** | "
         f"Bias: **{ctx['ai_bias']}** ({ctx['ai_confidence']:.0%}) | "
         f"PCR: {ctx['pcr_oi']:.2f} | "
         f"VIX: {ctx.get('india_vix', 'N/A')} | "
         f"Support: {ctx['support']} | "
         f"Resistance: {ctx['resistance']}. "
-        f"Ask me about regime, levels, PCR, VIX, bias or news. "
+        f"Ask me about levels, PCR, VIX, bias or news. "
         f"{DISCLOSURE}"
     )
 
@@ -223,28 +205,6 @@ async def ask_copilot(
 ):
     """
     AI copilot — answers market questions grounded in live data.
-
-    Behaviour:
-        With LLM configured  → GPT-4o / Claude answers from context
-        Without LLM          → rule-based structured response
-
-    Context injected into every LLM call:
-        spot, change_pct, india_vix
-        pcr_oi, support, resistance
-        regime + confidence
-        ai_bias + confidence + reasoning
-        recent headlines (3)
-
-    Guardrails:
-        Never answers without context
-        Never gives personalized advice
-        Always adds disclosure statement
-        Logs every call for audit trail
-
-    Note:
-        Set LLM_PROVIDER=openai or anthropic in .env
-        and add the matching API key to enable LLM responses.
-        Default (LLM_PROVIDER=none) uses rule-based fallback.
     """
     inst_id = body.instrument_id or 1
     ctx     = await _build_context(db, inst_id)
@@ -252,7 +212,6 @@ async def ask_copilot(
 
     sources = [
         "Live spot & options data",
-        "Regime engine (rule-based-v1.0)",
         "AI signal synthesizer (synthesizer-v1.0)",
         "News sentiment feed",
     ]
@@ -284,8 +243,9 @@ async def ask_copilot(
             answer = resp.choices[0].message.content or ""
             sources.append("OpenAI gpt-4o-mini")
         except Exception as e:
+            logger.error(f"OpenAI call failed: {e}")
             answer = _rule_based_answer(body.question, ctx)
-            sources.append(f"LLM error — fallback used ({str(e)[:40]})")
+            sources.append("Rule-based fallback (LLM unavailable)")
 
     # ── Anthropic ─────────────────────────────────────────────
     elif settings.LLM_PROVIDER == "anthropic" and settings.ANTHROPIC_API_KEY:
@@ -312,8 +272,9 @@ async def ask_copilot(
             answer = resp.content[0].text if resp.content else ""
             sources.append("Anthropic claude-sonnet-4-6")
         except Exception as e:
+            logger.error(f"Anthropic call failed: {e}")
             answer = _rule_based_answer(body.question, ctx)
-            sources.append(f"LLM error — fallback used ({str(e)[:40]})")
+            sources.append("Rule-based fallback (LLM unavailable)")
 
     # ── Rule-based fallback (default) ─────────────────────────
     else:

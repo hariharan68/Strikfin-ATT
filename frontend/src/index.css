@@ -143,13 +143,13 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #f4f5f7;
   border-radius: 9999px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #000710;
   background-clip: content-box;
 }
 

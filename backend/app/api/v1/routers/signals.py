@@ -3,11 +3,12 @@ api/v1/routers/signals.py
 --------------------------
 GET /api/v1/signals/{instrument_id}/latest
 """
-from fastapi import APIRouter, Path
+from fastapi import APIRouter, Path, Query
 
 from app.core.deps import CurrentUserId, DBSession
 from app.domain.schemas import AISignalOut
 from app.services.signal_service import SignalService
+from app.services.signal_outcome_service import SignalOutcomeService
 
 router = APIRouter(prefix="/signals", tags=["signals"])
 
@@ -50,3 +51,30 @@ async def latest_signal(
     """
     svc = SignalService(db)
     return await svc.get_latest_signal(instrument_id)
+
+
+@router.get("/{instrument_id}/accuracy")
+async def signal_accuracy(
+    instrument_id: int = Path(..., ge=1, le=2),
+    lookback_days: int = Query(90, ge=1, le=365),
+    db: DBSession = None,
+    _uid: CurrentUserId = None,
+):
+    """
+    Historical accuracy scorecard for this instrument's AI signals:
+    win rate, average realised R (expectancy), and bullish/bearish breakdown
+    over `lookback_days`. Outcomes are scored by the background job; call
+    POST /score to force a fresh evaluation.
+    """
+    return await SignalOutcomeService(db).get_accuracy(instrument_id, lookback_days)
+
+
+@router.post("/{instrument_id}/score")
+async def score_signals(
+    instrument_id: int = Path(..., ge=1, le=2),
+    lookback_days: int = Query(30, ge=1, le=180),
+    db: DBSession = None,
+    _uid: CurrentUserId = None,
+):
+    """Force-evaluate pending signals for this instrument against actual price."""
+    return await SignalOutcomeService(db).score_pending(instrument_id, lookback_days)

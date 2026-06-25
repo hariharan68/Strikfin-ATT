@@ -192,6 +192,38 @@ def get_option_chain(
 
 
 # ─────────────────────────────────────────────────────────────
+# HISTORICAL CANDLES
+# ─────────────────────────────────────────────────────────────
+
+def get_history(instrument_id: int, days: int = 60, resolution: str = "D") -> dict:
+    """
+    Synthetic daily OHLC candles (oldest→newest) for ATR/ADX/realized-vol
+    development. A gentle random walk around the base price with realistic
+    intraday ranges. Deterministic enough to be useful, random enough to
+    exercise the math.
+    """
+    base = _BASE.get(instrument_id, 24_000.0)
+    candles = []
+    close = base * 0.97  # start a bit below base so the series drifts up
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    for i in range(days, 0, -1):
+        drift = close * random.gauss(0.0005, 0.008)
+        open_ = close
+        close = round(open_ + drift, 2)
+        high  = round(max(open_, close) * random.uniform(1.001, 1.010), 2)
+        low   = round(min(open_, close) * random.uniform(0.990, 0.999), 2)
+        candles.append({
+            "ts":     now_ts - i * 86400,
+            "open":   round(open_, 2),
+            "high":   high,
+            "low":    low,
+            "close":  close,
+            "volume": random.randint(100_000, 900_000),
+        })
+    return {"instrument_id": instrument_id, "candles": candles, "source": "mock"}
+
+
+# ─────────────────────────────────────────────────────────────
 # INSTITUTIONAL ACTIVITY
 # ─────────────────────────────────────────────────────────────
 

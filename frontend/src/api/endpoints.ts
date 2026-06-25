@@ -270,84 +270,50 @@ function mapChainRow(d: Record<string, unknown>): OptionChainRow {
 }
 
 // ---------------------------------------------------------------------------
-// Regime
+// Options Lab — Open Interest
 // ---------------------------------------------------------------------------
-export interface RegimeEvidence {
-  title?: string
-  name?: string
-  detail?: string
-  description?: string
-  value?: string | number
+export interface OILabStrike {
+  strike: number
+  call_oi_open: number
+  call_oi_now: number
+  call_oi_chg: number
+  call_oi_chg_pct: number
+  put_oi_open: number
+  put_oi_now: number
+  put_oi_chg: number
+  put_oi_chg_pct: number
 }
 
-export interface RegimeData {
-  instrument_id?: number
-  regime?: number
-  label?: string
-  regime_label?: string
-  state?: string
-  confidence?: number
-  evidence?: RegimeEvidence[]
-  top_features?: Record<string, unknown>
-  model_version?: string
-  updated_at?: string
+export interface OILabSentiment {
+  label: string
+  bullish_pct: number
+  insight: string
+  analysis: string
 }
 
-/** Human titles for the regime evidence keys returned in top_features. */
-const REGIME_EVIDENCE_TITLES: Record<string, string> = {
-  vix: 'Volatility (VIX)',
-  range: 'Range',
-  trend: 'Trend',
-  oi_buildup: 'OI Build-up',
-  writing: 'Option Writing',
-  breakout: 'Breakout',
-  fii: 'FII Cash',
-  fii_fut: 'FII Futures',
+export interface OILabView {
+  instrument_id: number
+  symbol: string
+  spot: number
+  atm_strike: number
+  max_pain: number
+  lot_size: number
+  pcr_oi: number
+  pcr_change: number
+  open_ts: string | null
+  now_ts: string
+  data_quality: 'intraday' | 'live_proxy' | 'empty'
+  total_call_oi: number
+  total_put_oi: number
+  total_call_oi_chg: number
+  total_put_oi_chg: number
+  sentiment: OILabSentiment
+  strikes: OILabStrike[]
 }
 
-export async function getRegime(id: InstrumentId): Promise<RegimeData> {
-  const { data } = await api.get<Record<string, unknown>>(`/regime/${id}`)
-  return mapRegime(data)
-}
-
-/** Backend → frontend field mapping for regime classification. */
-function mapRegime(d: Record<string, unknown> | null | undefined): RegimeData {
-  if (!d || typeof d !== 'object') return {}
-  const str = (...keys: string[]): string | undefined => {
-    for (const k of keys) if (typeof d[k] === 'string') return d[k] as string
-    return undefined
-  }
-  const num = (...keys: string[]): number | undefined => {
-    for (const k of keys) {
-      const v = d[k]
-      if (typeof v === 'number' && !Number.isNaN(v)) return v
-    }
-    return undefined
-  }
-
-  // Evidence may arrive as a top_features dict or an evidence array.
-  let evidence: RegimeEvidence[] = []
-  const tf = d.top_features ?? d.evidence
-  if (Array.isArray(tf)) {
-    evidence = tf as RegimeEvidence[]
-  } else if (tf && typeof tf === 'object') {
-    evidence = Object.entries(tf as Record<string, unknown>)
-      .filter(([, v]) => v != null && String(v).length > 0)
-      .map(([key, v]) => ({
-        title: REGIME_EVIDENCE_TITLES[key] ?? key,
-        detail: String(v),
-      }))
-  }
-
-  return {
-    instrument_id: num('instrument_id'),
-    regime: num('regime'),
-    label: str('regime_label', 'label', 'state'),
-    confidence: num('confidence'),
-    evidence,
-    model_version: str('model_version'),
-    updated_at: str('as_of', 'updated_at'),
-  }
+export async function getOILabView(id: InstrumentId): Promise<OILabView> {
+  const { data } = await api.get<OILabView>(`/options-lab/oi/${id}`)
+  return data
 }
 
 // ---------------------------------------------------------------------------
@@ -577,8 +543,6 @@ export interface DashboardData {
   indices?: IndexSnapshot[]
   nifty?: IndexSnapshot
   sensex?: IndexSnapshot
-  nifty_regime?: RegimeData
-  sensex_regime?: RegimeData
   nifty_signal?: SignalData
   sensex_signal?: SignalData
   india_vix?: number
@@ -588,7 +552,6 @@ export interface DashboardData {
   summary?: string
   options?: OptionsMetrics
   option_chain?: OptionChainRow[]
-  regime?: RegimeData
   institutional?: InstitutionalData
   disclaimer?: string
 }

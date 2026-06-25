@@ -10,11 +10,13 @@ import { LoginPage } from './pages/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { OptionsPage } from './pages/OptionsPage'
 import { AdvanceOIPage } from './pages/AdvanceOIPage'
-import { RegimePage } from './pages/RegimePage'
+
 import { SignalsPage } from './pages/SignalsPage'
 import { SmartMoneyPage } from './pages/SmartMoneyPage'
 import { InstitutionalPage } from './pages/InstitutionalPage'
 import { AllInOnePage } from './pages/all-in-1/AllInOnePage'
+import { OptionChainPage } from './pages/OptionChainPage'
+import { OptionsLabPage } from './pages/OptionsLabPage'
 import { CopilotPage } from './pages/CopilotPage'
 import { AdvancedDashboardPage } from './pages/AdvancedDashboardPage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -113,11 +115,13 @@ export default function App() {
             <Route path="/advanced-dashboard" element={<AdvancedDashboardPage />} />
             <Route path="/options" element={<OptionsPage />} />
             <Route path="/advance-oi" element={<AdvanceOIPage />} />
-            <Route path="/regime" element={<RegimePage />} />
+
             <Route path="/signals" element={<SignalsPage />} />
             <Route path="/smart-money" element={<SmartMoneyPage />} />
             <Route path="/institutional" element={<InstitutionalPage />} />
             <Route path="/all-in-1" element={<AllInOnePage />} />
+            <Route path="/option-chain" element={<OptionChainPage />} />
+            <Route path="/options-lab" element={<OptionsLabPage />} />
             <Route path="/copilot" element={<CopilotPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>

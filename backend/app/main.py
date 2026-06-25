@@ -23,7 +23,7 @@ from app.api.v1.routers.auth         import router as auth_router
 from app.api.v1.routers.dashboard    import router as dashboard_router
 from app.api.v1.routers.index        import router as index_router
 from app.api.v1.routers.options      import router as options_router
-from app.api.v1.routers.regime       import router as regime_router
+from app.api.v1.routers.options_lab  import router as options_lab_router
 from app.api.v1.routers.signals      import router as signals_router
 from app.api.v1.routers.smart_money  import router as smart_money_router
 from app.api.v1.routers.institutional import router as institutional_router
@@ -73,6 +73,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"  Instrument seed skipped: {e}")
 
+    # Background ingestion + signal scoring (real ATR/ADX history + accuracy)
+    try:
+        from app.ingestion.scheduler import start_background_jobs
+        start_background_jobs()
+    except Exception as e:
+        logger.warning(f"  Background jobs not started: {e}")
+
     logger.info("✓ Alphalytic AI is ready")
     logger.info("  Docs : http://localhost:8000/api/docs")
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -81,6 +88,11 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down Alphalytic AI...")
+    try:
+        from app.ingestion.scheduler import stop_background_jobs
+        await stop_background_jobs()
+    except Exception:
+        pass
     from app.db.session import dispose_engine
     await dispose_engine()
     logger.info("✓ DB engine disposed. Goodbye.")
@@ -178,7 +190,8 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_router,     prefix=PREFIX)
     app.include_router(index_router,         prefix=PREFIX)
     app.include_router(options_router,       prefix=PREFIX)
-    app.include_router(regime_router,        prefix=PREFIX)
+    app.include_router(options_lab_router,   prefix=PREFIX)
+
     app.include_router(signals_router,       prefix=PREFIX)
     app.include_router(smart_money_router,   prefix=PREFIX)
     app.include_router(institutional_router, prefix=PREFIX)

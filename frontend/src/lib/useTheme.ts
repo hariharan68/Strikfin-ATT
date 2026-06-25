@@ -4,11 +4,11 @@ import { useSyncExternalStore } from 'react'
  * Theme system — three named themes.
  *   classic → default light look (blue primary)
  *   warm    → "Warm Cream" terracotta + cream surfaces
- *   dark    → full dark theme
+ *   dark    → full dark theme (navy slate)
  *
  * Applied as classes on <html>:
- *   dark  → `.dark`
- *   warm  → `.theme-warm`
+ *   dark    → `.dark`
+ *   warm    → `.theme-warm`
  *   classic → no class
  *
  * A module-level store (not per-hook state) so every consumer — the
@@ -23,14 +23,22 @@ const LIGHT_PREF_KEY = 'alphalytic-theme-light'
 
 const THEMES: readonly Theme[] = ['classic', 'warm', 'dark']
 
+/** The dark-family themes — used by the binary navbar toggle. */
+const DARK_THEMES: readonly Theme[] = ['dark']
+
 function isTheme(v: unknown): v is Theme {
   return typeof v === 'string' && (THEMES as readonly string[]).includes(v)
 }
 
+function isDarkTheme(theme: Theme): boolean {
+  return (DARK_THEMES as readonly string[]).includes(theme)
+}
+
 function readStored(): Theme {
   const stored = localStorage.getItem(STORAGE_KEY)
-  // Migrate the old binary value ('dark' | 'light').
+  // Migrate old values.
   if (stored === 'light') return 'classic'
+  if (stored === 'evil-black') return 'dark'
   return isTheme(stored) ? stored : 'classic'
 }
 
@@ -52,15 +60,16 @@ export function setTheme(theme: Theme) {
   current = theme
   applyTheme(theme)
   localStorage.setItem(STORAGE_KEY, theme)
-  if (theme !== 'dark') localStorage.setItem(LIGHT_PREF_KEY, theme)
+  // Remember the last *light* theme so the navbar toggle can restore it.
+  if (!isDarkTheme(theme)) localStorage.setItem(LIGHT_PREF_KEY, theme)
   emit()
 }
 
-/** Quick navbar toggle: dark ⇄ last-used light theme (classic/warm). */
+/** Quick navbar toggle: dark-family ⇄ last-used light theme (classic/warm). */
 export function toggleDark() {
-  if (current === 'dark') {
+  if (isDarkTheme(current)) {
     const pref = localStorage.getItem(LIGHT_PREF_KEY)
-    setTheme(isTheme(pref) && pref !== 'dark' ? pref : 'classic')
+    setTheme(isTheme(pref) && !isDarkTheme(pref) ? pref : 'classic')
   } else {
     setTheme('dark')
   }
@@ -79,7 +88,7 @@ export function useTheme() {
   const theme = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   return {
     theme,
-    isDark: theme === 'dark',
+    isDark: isDarkTheme(theme),
     setTheme,
     toggle: toggleDark,
   }
