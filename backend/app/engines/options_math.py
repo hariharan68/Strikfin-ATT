@@ -345,7 +345,7 @@ def iv_percentile_label(pct: Optional[float]) -> Optional[str]:
 # ─────────────────────────────────────────────────────────────
 
 # Contract lot sizes for notional scaling. Update if the exchange revises them.
-LOT_SIZE = {1: 75, 2: 20}  # 1=NIFTY, 2=SENSEX
+LOT_SIZE = {1: 65, 2: 20}  # 1=NIFTY, 2=SENSEX
 
 
 def net_gex(rows: list[dict], spot: float, lot_size: int) -> Optional[float]:

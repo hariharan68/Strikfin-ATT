@@ -6,46 +6,42 @@
 |---|---|---|
 | Python | 3.11+ | |
 | Node.js | 20+ | |
-| Microsoft SQL Server | Any edition | Express (free) works fine |
-| ODBC Driver 17 for SQL Server | 17.x | Must match `DB_DRIVER` env var |
+| PostgreSQL | 16+ | Community server is fine; 18 tested |
+| pgAdmin 4 | Latest | Optional — GUI for creating the database |
 | Git | Any | |
 
 ---
 
-## Step 1: SQL Server Setup
+## Step 1: PostgreSQL Setup
 
-### Install SQL Server Express (if not already installed)
+### Install PostgreSQL (if not already installed)
 
-Download from Microsoft: SQL Server 2022 Express or SQL Server 2019 Express.
+Download the installer from [postgresql.org/download](https://www.postgresql.org/download/) (the EDB installer on Windows) and install PostgreSQL 16 or newer.
 
 During installation:
-- Choose **Windows Authentication mode** (default on Express).
-- Note the instance name — typically `YOURMACHINE\SQLEXPRESS`.
+- Set and **remember the password** for the `postgres` superuser — you will put it in `.env`.
+- Keep the default port **`5432`** unless another Postgres instance already uses it (the installer will pick `5433` for a second version).
+- Optionally install **pgAdmin 4** (bundled in the EDB installer) for a GUI.
 
-### Enable TCP/IP and Named Pipes (optional for local dev)
+### Confirm the port
 
-For a local named instance (`MACHINE\SQLEXPRESS`), the connection uses the named pipe / shared memory protocol by default. No port number is needed — and adding one will break named-instance connections.
+If you have more than one Postgres version installed, each listens on its own port. In pgAdmin, right-click the server → **Properties → Connection** and note the **Port**. Use that value for `DB_PORT` in `.env`.
 
 ### Create the database
 
-Open SQL Server Management Studio (SSMS) or `sqlcmd`:
+**Option A — pgAdmin (GUI):** expand your server → right-click **Databases** → **Create → Database…** → name it `StrikfinDB`, owner `postgres`, **Save**. Leave OID/Tablespace/Comment blank.
+
+**Option B — `psql` / Query Tool:**
 
 ```sql
-CREATE DATABASE StrikfinDB;
+CREATE DATABASE "StrikfinDB";
 ```
 
-### Install ODBC Driver 17
+> Keep the double quotes — Postgres folds unquoted identifiers to lowercase, so quoting preserves the capital `S` and `D`.
 
-Download from Microsoft: "Microsoft ODBC Driver 17 for SQL Server" for your OS.
+### No ODBC driver needed
 
-Verify installation:
-```bash
-# Windows — check ODBC Data Sources (odbcad32.exe)
-# or from Python:
-import pyodbc
-print(pyodbc.drivers())
-# Should include: 'ODBC Driver 17 for SQL Server'
-```
+PostgreSQL is reached through the async `asyncpg` driver (installed via `requirements.txt`). There is no ODBC driver or DSN to configure.
 
 ---
 
@@ -83,9 +79,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES=60
 REFRESH_TOKEN_EXPIRE_DAYS=30
 
 # ── Database (REQUIRED) ───────────────────────────────────────
-DB_SERVER=YOURMACHINE\SQLEXPRESS
+DB_HOST=localhost
+DB_PORT=5432
 DB_NAME=StrikfinDB
-DB_DRIVER=ODBC Driver 17 for SQL Server
+DB_USER=postgres
+DB_PASSWORD=your-postgres-password
 
 # ── Market Data ───────────────────────────────────────────────
 # Use "mock" for development; "fyers" requires a valid Fyers token
@@ -115,18 +113,19 @@ import secrets
 print(secrets.token_hex(32))
 ```
 
-### Windows Auth Connection String
+### PostgreSQL Connection String
 
-The backend builds the connection string from `DB_SERVER`, `DB_NAME`, and `DB_DRIVER`:
+The backend builds the connection string from `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, and `DB_NAME` (see `config.py`):
 
 ```
-mssql+aioodbc://@MACHINE\SQLEXPRESS/StrikfinDB
-  ?driver=ODBC+Driver+17+for+SQL+Server
-  &Trusted_Connection=yes
-  &TrustServerCertificate=yes
+postgresql+asyncpg://postgres:your-postgres-password@localhost:5432/StrikfinDB
 ```
 
-There is **no username or password** in this string — Windows Authentication uses the OS user running the process. Ensure the Windows user running `uvicorn` has `db_owner` or at minimum `db_datareader + db_datawriter` permissions on `StrikfinDB`.
+The `DB_USER` role must own — or have `CONNECT`, `CREATE`, and read/write privileges on — the `StrikfinDB` database. The default `postgres` superuser satisfies this out of the box.
+
+### Verify the connection
+
+Start the backend (Step 5) — on a successful connection it logs `✓ Database tables ready`. If the credentials, host, or port are wrong it logs `✗ DB table creation failed … check PostgreSQL connection`.
 
 ---
 
@@ -232,17 +231,17 @@ curl -X POST http://localhost:8000/api/v1/auth/fyers/token \
 
 ## Common Setup Errors
 
-### `[ODBC] Data source name not found`
-The ODBC driver name in `DB_DRIVER` does not match what's installed. Run `pyodbc.drivers()` and use the exact string from the output.
+### `ModuleNotFoundError: No module named 'asyncpg'`
+The Postgres driver isn't installed in the active environment. Activate the venv and run `pip install -r requirements.txt`.
 
-### `Login failed for user 'NT AUTHORITY\ANONYMOUS LOGON'`
-The SQL Server instance does not allow Windows Authentication, or the Windows user running Python does not have database access. Grant `db_owner` to the current Windows user in SSMS.
+### `password authentication failed for user "postgres"`
+`DB_PASSWORD` (or `DB_USER`) in `.env` is wrong. Use the password you set for the role during PostgreSQL install.
 
-### `Named Pipes Provider: Could not open a connection to SQL Server [53]`
-SQL Server service is not running, or the instance name in `DB_SERVER` is wrong. Check SQL Server Configuration Manager → SQL Server Services.
+### `database "StrikfinDB" does not exist`
+The database hasn't been created yet, or the name/casing differs. Create it with `CREATE DATABASE "StrikfinDB";` (keep the quotes to preserve capitals), or fix `DB_NAME` in `.env`.
 
-### `Cannot connect to SQL Server named instance with port`
-Named instances (`MACHINE\SQLEXPRESS`) do not use a fixed port. Remove any port specification from `DB_SERVER`. The connection string builder in `config.py` never adds a port by design.
+### `Connection refused` / `could not connect to server`
+The PostgreSQL service isn't running or `DB_PORT` is wrong. Start the Postgres service, and if you have multiple Postgres versions installed, confirm the port in pgAdmin (**Properties → Connection → Port**) — a second install commonly uses `5433`.
 
 ### `alembic: Target database is not up to date`
 Run `alembic upgrade head` from the `backend/` directory with the virtualenv activated.

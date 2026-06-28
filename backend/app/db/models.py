@@ -12,7 +12,7 @@ from sqlalchemy import (
     BIGINT, CHAR, DATE, DECIMAL, TEXT,
     Boolean, DateTime, ForeignKey,
     Index, Integer, SmallInteger,
-    String, UniqueConstraint,
+    String, TypeDecorator, UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,6 +21,26 @@ from app.db.session import Base
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+class UTCDateTime(TypeDecorator):
+    """TIMESTAMP column that accepts tz-aware UTC datetimes.
+
+    The application works in tz-aware UTC, but the columns are
+    TIMESTAMP WITHOUT TIME ZONE (naive). asyncpg refuses to bind an
+    aware datetime to a naive column, so we normalise aware → naive-UTC
+    on the way in. Values are read back naive (UTC), which matches the
+    rest of the codebase (e.g. options_lab_service treats snap_ts as
+    naive UTC). On MSSQL this normalisation happened implicitly; on
+    PostgreSQL we do it explicitly here.
+    """
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None and value.tzinfo is not None:
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
 
 
 # ─────────────────────────────────────────────────────────────
@@ -35,8 +55,8 @@ class User(Base):
     password_hash:Mapped[str]           = mapped_column(String(255), nullable=False)
     display_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     is_active:    Mapped[bool]          = mapped_column(Boolean, default=True, nullable=False)
-    created_at:   Mapped[datetime]      = mapped_column(DateTime, default=_now, nullable=False)
-    last_login_at:Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at:   Mapped[datetime]      = mapped_column(UTCDateTime, default=_now, nullable=False)
+    last_login_at:Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
 
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
@@ -50,10 +70,10 @@ class RefreshToken(Base):
     token_id:   Mapped[int]           = mapped_column(BIGINT, primary_key=True, autoincrement=True)
     user_id:    Mapped[int]           = mapped_column(BIGINT, ForeignKey("users.user_id"), nullable=False)
     token_hash: Mapped[str]           = mapped_column(String(255), unique=True, nullable=False)
-    expires_at: Mapped[datetime]      = mapped_column(DateTime, nullable=False)
-    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[datetime]      = mapped_column(UTCDateTime, nullable=False)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
     device_info:Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
-    created_at: Mapped[datetime]      = mapped_column(DateTime, default=_now, nullable=False)
+    created_at: Mapped[datetime]      = mapped_column(UTCDateTime, default=_now, nullable=False)
 
     user: Mapped["User"] = relationship(back_populates="refresh_tokens")
 
@@ -86,7 +106,7 @@ class IndexLiveData(Base):
     row_id:        Mapped[int]           = mapped_column(BIGINT, primary_key=True, autoincrement=True)
     instrument_id: Mapped[int]           = mapped_column(SmallInteger, ForeignKey("instruments.instrument_id"), nullable=False)
     trade_date:    Mapped[datetime]      = mapped_column(DATE, nullable=False)
-    snap_ts:       Mapped[datetime]      = mapped_column(DateTime, nullable=False)
+    snap_ts:       Mapped[datetime]      = mapped_column(UTCDateTime, nullable=False)
     last_price:    Mapped[float]         = mapped_column(DECIMAL(12, 2), nullable=False)
     open_price:    Mapped[Optional[float]] = mapped_column(DECIMAL(12, 2), nullable=True)
     high_price:    Mapped[Optional[float]] = mapped_column(DECIMAL(12, 2), nullable=True)
@@ -112,7 +132,7 @@ class OptionChainSnapshot(Base):
     instrument_id:  Mapped[int]           = mapped_column(SmallInteger, ForeignKey("instruments.instrument_id"), nullable=False)
     trade_date:     Mapped[datetime]      = mapped_column(DATE, nullable=False)
     expiry_date:    Mapped[datetime]      = mapped_column(DATE, nullable=False)
-    snap_ts:        Mapped[datetime]      = mapped_column(DateTime, nullable=False)
+    snap_ts:        Mapped[datetime]      = mapped_column(UTCDateTime, nullable=False)
     spot:           Mapped[float]         = mapped_column(DECIMAL(12, 2), nullable=False)
     atm_strike:     Mapped[float]         = mapped_column(DECIMAL(12, 2), nullable=False)
     total_call_oi:  Mapped[Optional[int]] = mapped_column(BIGINT, nullable=True)
@@ -174,7 +194,7 @@ class InstitutionalActivity(Base):
     long_contracts: Mapped[Optional[int]]   = mapped_column(BIGINT, nullable=True)
     short_contracts:Mapped[Optional[int]]   = mapped_column(BIGINT, nullable=True)
     is_provisional: Mapped[bool]            = mapped_column(Boolean, default=True)
-    source_ts:      Mapped[datetime]        = mapped_column(DateTime, nullable=False)
+    source_ts:      Mapped[datetime]        = mapped_column(UTCDateTime, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("trade_date", "category", "segment", "is_provisional", name="uq_inst"),
@@ -193,10 +213,10 @@ class NewsFeed(Base):
     source:      Mapped[str]           = mapped_column(String(80), nullable=False)
     headline:    Mapped[str]           = mapped_column(String(500), nullable=False)
     url:         Mapped[Optional[str]] = mapped_column(String(800), nullable=True)
-    published_at:Mapped[datetime]      = mapped_column(DateTime, nullable=False)
+    published_at:Mapped[datetime]      = mapped_column(UTCDateTime, nullable=False)
     dedup_hash:  Mapped[str]           = mapped_column(CHAR(64), unique=True, nullable=False)
     category:    Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
-    ingested_at: Mapped[datetime]      = mapped_column(DateTime, default=_now, nullable=False)
+    ingested_at: Mapped[datetime]      = mapped_column(UTCDateTime, default=_now, nullable=False)
 
     __table_args__ = (
         Index("ix_news_pub", "published_at"),
@@ -208,7 +228,7 @@ class MarketSentiment(Base):
 
     id:            Mapped[int]           = mapped_column(BIGINT, primary_key=True, autoincrement=True)
     instrument_id: Mapped[Optional[int]] = mapped_column(SmallInteger, ForeignKey("instruments.instrument_id"), nullable=True)
-    as_of:         Mapped[datetime]      = mapped_column(DateTime, nullable=False)
+    as_of:         Mapped[datetime]      = mapped_column(UTCDateTime, nullable=False)
     model:         Mapped[str]           = mapped_column(String(40), nullable=False)
     label:         Mapped[int]           = mapped_column(SmallInteger, nullable=False)  # -1 | 0 | 1
     score:         Mapped[float]         = mapped_column(DECIMAL(6, 4), nullable=False)
@@ -229,7 +249,7 @@ class SmartMoneySignal(Base):
 
     id:            Mapped[int]           = mapped_column(BIGINT, primary_key=True, autoincrement=True)
     instrument_id: Mapped[int]           = mapped_column(SmallInteger, ForeignKey("instruments.instrument_id"), nullable=False)
-    as_of:         Mapped[datetime]      = mapped_column(DateTime, nullable=False)
+    as_of:         Mapped[datetime]      = mapped_column(UTCDateTime, nullable=False)
     signal_type:   Mapped[int]           = mapped_column(SmallInteger, nullable=False)
     # 1 LongBuildup 2 ShortBuildup 3 LongUnwind 4 ShortCover 5 UnusualOI 6 UnusualVol
     strike:        Mapped[Optional[float]] = mapped_column(DECIMAL(12, 2), nullable=True)
@@ -252,7 +272,7 @@ class AITradeSignal(Base):
 
     id:              Mapped[int]           = mapped_column(BIGINT, primary_key=True, autoincrement=True)
     instrument_id:   Mapped[int]           = mapped_column(SmallInteger, ForeignKey("instruments.instrument_id"), nullable=False)
-    as_of:           Mapped[datetime]      = mapped_column(DateTime, nullable=False)
+    as_of:           Mapped[datetime]      = mapped_column(UTCDateTime, nullable=False)
     bias:            Mapped[int]           = mapped_column(SmallInteger, nullable=False)  # 1 | 0 | -1
     entry_ref:       Mapped[Optional[float]] = mapped_column(DECIMAL(12, 2), nullable=True)
     stop_ref:        Mapped[Optional[float]] = mapped_column(DECIMAL(12, 2), nullable=True)
@@ -283,8 +303,8 @@ class SignalOutcome(Base):
     realized_r:   Mapped[Optional[float]] = mapped_column(DECIMAL(8, 3), nullable=True)
     exit_price:   Mapped[Optional[float]] = mapped_column(DECIMAL(12, 2), nullable=True)
     bars_held:    Mapped[Optional[int]]   = mapped_column(Integer, nullable=True)
-    signal_as_of: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    evaluated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, nullable=False)
+    signal_as_of: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now, nullable=False)
 
     __table_args__ = (
         Index("ix_outcome_lookup", "instrument_id", "status"),
@@ -300,7 +320,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id:          Mapped[int]           = mapped_column(BIGINT, primary_key=True, autoincrement=True)
-    as_of:       Mapped[datetime]      = mapped_column(DateTime, default=_now, nullable=False)
+    as_of:       Mapped[datetime]      = mapped_column(UTCDateTime, default=_now, nullable=False)
     user_id:     Mapped[Optional[int]] = mapped_column(BIGINT, ForeignKey("users.user_id"), nullable=True)
     action:      Mapped[str]           = mapped_column(String(80), nullable=False)
     ip:          Mapped[Optional[str]] = mapped_column(String(45), nullable=True)

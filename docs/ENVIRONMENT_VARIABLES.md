@@ -36,18 +36,20 @@ python -c "import secrets; print(secrets.token_hex(32))"
 
 | Variable | Default | Required | Sensitive | Purpose |
 |---|---|---|---|---|
-| `DB_SERVER` | `SRIHARIHARAN\SQLEXPRESS` | **Yes** | No | SQL Server host and optional instance name |
+| `DB_HOST` | `localhost` | No | No | PostgreSQL server host |
+| `DB_PORT` | `5432` | No | No | PostgreSQL server port |
 | `DB_NAME` | `StrikfinDB` | No | No | Database name |
-| `DB_DRIVER` | `ODBC Driver 17 for SQL Server` | No | No | ODBC driver string (must match installed driver exactly) |
+| `DB_USER` | `postgres` | **Yes** | No | PostgreSQL role/username |
+| `DB_PASSWORD` | — | **Yes** | **Yes** | Password for `DB_USER` |
 
 The `DATABASE_URL` property is assembled at runtime:
 ```
-mssql+aioodbc://@{DB_SERVER}/{DB_NAME}?driver={DB_DRIVER}&Trusted_Connection=yes&TrustServerCertificate=yes
+postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}
 ```
 
-No username or password — Windows Authentication (`Trusted_Connection=yes`) is used exclusively.
+Authentication uses a standard Postgres role + password (no Windows/ODBC). The async `asyncpg` driver is used — no ODBC driver needs to be installed.
 
-**Named instance note:** Do not add a port to `DB_SERVER`. Named instances use dynamic port discovery via SQL Server Browser. Adding a port breaks named-instance resolution.
+**Multiple Postgres versions note:** if you have more than one Postgres server installed, they listen on different ports (commonly `5432` and `5433`). Set `DB_PORT` to match the instance that holds `StrikfinDB`.
 
 ---
 
@@ -108,8 +110,11 @@ ALLOWED_ORIGINS=http://localhost:5173,https://app.strikfin.ai
 
 ```ini
 SECRET_KEY=replace-with-32-char-random-string
-DB_SERVER=YOURMACHINE\SQLEXPRESS
+DB_HOST=localhost
+DB_PORT=5432
 DB_NAME=StrikfinDB
+DB_USER=postgres
+DB_PASSWORD=your-postgres-password
 MARKET_DATA_VENDOR=mock
 LLM_PROVIDER=none
 ```
@@ -118,9 +123,11 @@ LLM_PROVIDER=none
 
 ```ini
 SECRET_KEY=replace-with-32-char-random-string
-DB_SERVER=YOURMACHINE\SQLEXPRESS
+DB_HOST=localhost
+DB_PORT=5432
 DB_NAME=StrikfinDB
-DB_DRIVER=ODBC Driver 17 for SQL Server
+DB_USER=postgres
+DB_PASSWORD=your-postgres-password
 
 MARKET_DATA_VENDOR=fyers
 FYERS_CLIENT_ID=XY1234

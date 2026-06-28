@@ -14,6 +14,8 @@ GET /api/v1/options-lab/oi-series/{instrument_id}
 """
 from fastapi import APIRouter, Path, Query
 
+from app.core.cache import cache, make_key
+from app.core.config import settings
 from app.core.deps import CurrentUserId, DBSession
 from app.services.options_lab_service import OptionsLabService
 
@@ -26,8 +28,15 @@ async def open_interest_view(
     db: DBSession = None,
     _uid: CurrentUserId = None,
 ):
-    svc = OptionsLabService(db)
-    return await svc.get_oi_view(instrument_id)
+    key = make_key("lab:oi", instrument_id)
+    cached = await cache.get_json(key)
+    if cached is not None:
+        return cached
+
+    svc  = OptionsLabService(db)
+    data = await svc.get_oi_view(instrument_id)
+    await cache.set_json(key, data, ttl=settings.CACHE_TTL_OI)
+    return data
 
 
 @router.get("/oi-series/{instrument_id}")
@@ -37,5 +46,12 @@ async def oi_series_view(
     db: DBSession = None,
     _uid: CurrentUserId = None,
 ):
-    svc = OptionsLabService(db)
-    return await svc.get_oi_series(instrument_id, window=window)
+    key = make_key("lab:oi-series", instrument_id, window)
+    cached = await cache.get_json(key)
+    if cached is not None:
+        return cached
+
+    svc  = OptionsLabService(db)
+    data = await svc.get_oi_series(instrument_id, window=window)
+    await cache.set_json(key, data, ttl=settings.CACHE_TTL_OI)
+    return data

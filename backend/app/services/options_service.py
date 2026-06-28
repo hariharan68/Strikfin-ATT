@@ -114,9 +114,10 @@ class OptionsService:
     async def get_latest_metrics(
         self,
         instrument_id: int,
+        persist: bool = False,
     ) -> OptionsMetrics:
         try:
-            return await self._get_latest_metrics(instrument_id)
+            return await self._get_latest_metrics(instrument_id, persist=persist)
         except Exception:
             logger.error(
                 "get_latest_metrics failed for instrument %s\n%s",
@@ -127,11 +128,14 @@ class OptionsService:
     async def _get_latest_metrics(
         self,
         instrument_id: int,
+        persist: bool = False,
     ) -> OptionsMetrics:
         """
         1. Fetch spot + chain from provider
         2. Run all engine computations
-        3. Persist snapshot to DB
+        3. Persist snapshot to DB — ONLY when persist=True (the scheduler).
+           Read requests pass persist=False and are cached at the router, so a
+           dashboard poll no longer triggers a snapshot+rows write.
         4. Return OptionsMetrics schema
         """
 
@@ -159,7 +163,7 @@ class OptionsService:
         ) if atm_iv_val is not None else (None, None)
         
         # Gamma exposure (raw_rows now carry per-strike gamma from provider)
-        lot          = LOT_SIZE.get(instrument_id, 75)
+        lot          = LOT_SIZE.get(instrument_id, 65)
         net_gex_val  = net_gex(raw_rows, spot, lot)
         gamma_flip   = gamma_flip_strike(raw_rows, spot)
         gex_lbl      = gex_label(net_gex_val)
@@ -184,50 +188,51 @@ class OptionsService:
                 "buildup_label": label,
             })
 
-        # ── 3. Persist snapshot ───────────────────────────────
+        # ── 3. Persist snapshot (scheduler only) ──────────────
         now = datetime.now(timezone.utc)
 
-        expiry_str = chain_data.get("expiry_date") or "2026-06-26"
-        try:
-            expiry_dt = datetime.strptime(expiry_str, "%Y-%m-%d").date()
-        except (ValueError, TypeError):
-            expiry_dt = now.date()
+        if persist:
+            expiry_str = chain_data.get("expiry_date") or "2026-06-26"
+            try:
+                expiry_dt = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                expiry_dt = now.date()
 
-        snapshot = OptionChainSnapshot(
-            instrument_id=instrument_id,
-            trade_date=now.date(),
-            expiry_date=expiry_dt,
-            snap_ts=now,
-            spot=spot,
-            atm_strike=atm,
-            total_call_oi=total_call,
-            total_put_oi=total_put,
-            pcr_oi=pcr_oi_val,
-            pcr_volume=pcr_vol_val,
-            max_pain_strike=max_pain_val,
-        )
-        self.db.add(snapshot)
-        await self.db.flush()  # get snapshot_id before rows
-
-        for r in classified_rows:
-            self.db.add(OptionChainRow(
-                snapshot_id=snapshot.snapshot_id,
+            snapshot = OptionChainSnapshot(
+                instrument_id=instrument_id,
                 trade_date=now.date(),
-                strike=r["strike"],
-                option_type=r["option_type"],
-                ltp=r.get("ltp"),
-                oi=r.get("oi"),
-                oi_change=r.get("oi_change"),
-                volume=r.get("volume"),
-                iv=r.get("iv"),
-                delta=r.get("delta"),
-                theta=r.get("theta"),
-                vega=r.get("vega"),
-                gamma=r.get("gamma"),
-                buildup_type=r.get("buildup_type"),
-            ))
+                expiry_date=expiry_dt,
+                snap_ts=now,
+                spot=spot,
+                atm_strike=atm,
+                total_call_oi=total_call,
+                total_put_oi=total_put,
+                pcr_oi=pcr_oi_val,
+                pcr_volume=pcr_vol_val,
+                max_pain_strike=max_pain_val,
+            )
+            self.db.add(snapshot)
+            await self.db.flush()  # get snapshot_id before rows
 
-        await self.db.commit()
+            for r in classified_rows:
+                self.db.add(OptionChainRow(
+                    snapshot_id=snapshot.snapshot_id,
+                    trade_date=now.date(),
+                    strike=r["strike"],
+                    option_type=r["option_type"],
+                    ltp=r.get("ltp"),
+                    oi=r.get("oi"),
+                    oi_change=r.get("oi_change"),
+                    volume=r.get("volume"),
+                    iv=r.get("iv"),
+                    delta=r.get("delta"),
+                    theta=r.get("theta"),
+                    vega=r.get("vega"),
+                    gamma=r.get("gamma"),
+                    buildup_type=r.get("buildup_type"),
+                ))
+
+            await self.db.commit()
 
         # ── 4. Return schema ──────────────────────────────────
         return OptionsMetrics(

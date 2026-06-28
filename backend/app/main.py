@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
             logger.info("✓ Database tables ready")
         except Exception as e:
             logger.error(f"✗ DB table creation failed: {e}")
-            logger.warning("  Continuing without DB — check MSSQL connection")
+            logger.warning("  Continuing without DB — check PostgreSQL connection")
 
         try:
             await _seed_instruments()
@@ -112,14 +112,14 @@ async def _seed_instruments() -> None:
             instrument_id=1,
             symbol="NIFTY50",
             exchange="NSE",
-            lot_size=75,
+            lot_size=65,
             is_active=True,
         ),
         Instrument(
             instrument_id=2,
             symbol="SENSEX",
             exchange="BSE",
-            lot_size=10,
+            lot_size=20,
             is_active=True,
         ),
     ]

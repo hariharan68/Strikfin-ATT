@@ -30,25 +30,28 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
-    # ── Database (MSSQL — Windows Auth) ───────────────────────
-    DB_SERVER: str = "SRIHARIHARAN\\SQLEXPRESS"
+    # ── Database (PostgreSQL) ──────────────────────────────────
+    DB_HOST: str = "localhost"
+    DB_PORT: int = 5432
     DB_NAME: str = "StrikfinDB"
-    DB_DRIVER: str = "ODBC Driver 17 for SQL Server"
+    DB_USER: str = "postgres"
+    DB_PASSWORD: str = ""
 
     @property
     def DATABASE_URL(self) -> str:
-        """
-        Builds MSSQL connection string using Windows Authentication.
-        Named instance — no port number (port breaks named instances).
-        Trusted_Connection=yes means no username/password needed.
-        """
-        driver = self.DB_DRIVER.replace(" ", "+")
         return (
-            f"mssql+aioodbc://@{self.DB_SERVER}/{self.DB_NAME}"
-            f"?driver={driver}"
-            f"&Trusted_Connection=yes"
-            f"&TrustServerCertificate=yes"
+            f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD}"
+            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
         )
+
+    # ── Cache (Redis-ready) ───────────────────────────────────
+    # Leave REDIS_URL empty to use the built-in in-process cache (good for
+    # single-process dev). Set it (e.g. redis://localhost:6379/0) to use a
+    # shared Redis hot cache across workers/restarts — no code change needed.
+    REDIS_URL: str = ""
+    CACHE_TTL_METRICS: int = 30   # option metrics / PCR — aligns with UI poll
+    CACHE_TTL_CHAIN: int = 30     # full option chain rows
+    CACHE_TTL_OI: int = 30        # options-lab OI view + multi-strike series
 
     # ── Market Data ───────────────────────────────────────────
     MARKET_DATA_VENDOR: Literal["mock", "fyers"] = "mock"

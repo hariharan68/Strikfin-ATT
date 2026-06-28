@@ -88,7 +88,7 @@ async def _snapshot_options() -> None:
         svc = OptionsService(db)
         for iid in _INSTRUMENTS:
             try:
-                await svc.get_latest_metrics(iid)  # persists snapshot as a side effect
+                await svc.get_latest_metrics(iid, persist=True)  # scheduler owns persistence
             except Exception:
                 logger.warning("option snapshot failed for instrument %s", iid, exc_info=True)
 

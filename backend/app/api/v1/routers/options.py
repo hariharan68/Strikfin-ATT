@@ -6,6 +6,8 @@ GET /api/v1/options/{instrument_id}/chain
 """
 from fastapi import APIRouter, Path
 
+from app.core.cache import cache, make_key
+from app.core.config import settings
 from app.core.deps import CurrentUserId, DBSession
 from app.services.options_service import OptionsService
 
@@ -32,9 +34,16 @@ async def options_metrics(
         Total call/put OI
         Writing posture
     """
+    key = make_key("opt:metrics", instrument_id)
+    cached = await cache.get_json(key)
+    if cached is not None:
+        return cached
+
     svc     = OptionsService(db)
-    metrics = await svc.get_latest_metrics(instrument_id)
-    return metrics.model_dump()
+    metrics = await svc.get_latest_metrics(instrument_id)  # persist=False — read path
+    data    = metrics.model_dump(mode="json")
+    await cache.set_json(key, data, ttl=settings.CACHE_TTL_METRICS)
+    return data
 
 
 # ─────────────────────────────────────────────────────────────
@@ -62,5 +71,12 @@ async def options_chain(
         3  SHORT_COVERING  price↑ oi↓ — shorts exiting
         4  LONG_UNWINDING  price↓ oi↓ — longs exiting
     """
-    svc = OptionsService(db)
-    return await svc.get_chain_rows(instrument_id)
+    key = make_key("opt:chain", instrument_id)
+    cached = await cache.get_json(key)
+    if cached is not None:
+        return cached
+
+    svc  = OptionsService(db)
+    data = await svc.get_chain_rows(instrument_id)
+    await cache.set_json(key, data, ttl=settings.CACHE_TTL_CHAIN)
+    return data

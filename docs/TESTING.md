@@ -96,5 +96,5 @@ The following areas have **no test coverage** at this time:
 
 1. **Write unit tests for the engine functions** — all engines are pure Python with no external dependencies, making them trivially testable without a DB or network.
 2. **Add a `conftest.py`** with shared fixtures (e.g., a minimal `ChainRow` list, a typical `RegimeFeatures` instance).
-3. **Add integration tests** using an in-memory SQLite database (SQLAlchemy supports this for testing; note that some MSSQL-specific syntax may need adaptation).
+3. **Add integration tests** against a disposable PostgreSQL instance (e.g. a throwaway Docker container or a dedicated test database) so the asyncpg dialect, JSON columns, and constraints are exercised exactly as in production.
 4. **Add `pytest-cov`** to requirements and set a coverage gate in CI.

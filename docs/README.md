@@ -9,8 +9,8 @@ Strikfin is an institutional-grade market intelligence terminal for India's benc
 | Layer | Technology |
 |---|---|
 | **Backend framework** | FastAPI 0.115.5 + Uvicorn 0.32.1 |
-| **Database** | Microsoft SQL Server (MSSQL) via Windows Authentication |
-| **ORM** | SQLAlchemy 2.0 async + aioodbc / pyodbc |
+| **Database** | PostgreSQL 16+ (user/password auth) |
+| **ORM** | SQLAlchemy 2.0 async + asyncpg |
 | **Migrations** | Alembic 1.14 |
 | **Auth** | JWT (python-jose) + bcrypt password hashing |
 | **LLM (optional)** | OpenAI `gpt-4o-mini` or Anthropic `claude-sonnet-4-6` |
@@ -30,8 +30,8 @@ Strikfin is an institutional-grade market intelligence terminal for India's benc
 
 - Python 3.11+
 - Node.js 20+
-- Microsoft SQL Server (Express edition is fine) with Windows Authentication enabled
-- ODBC Driver 17 for SQL Server
+- PostgreSQL 16+ (any edition; the community server is fine)
+- A Postgres role/password and an empty database (e.g. `StrikfinDB`)
 
 ### 1. Clone & install backend
 
@@ -53,8 +53,11 @@ Minimum required `.env`:
 
 ```ini
 SECRET_KEY=your-random-secret-here
-DB_SERVER=YOURMACHINE\SQLEXPRESS
+DB_HOST=localhost
+DB_PORT=5432
 DB_NAME=StrikfinDB
+DB_USER=postgres
+DB_PASSWORD=your-postgres-password
 MARKET_DATA_VENDOR=mock
 LLM_PROVIDER=none
 ```

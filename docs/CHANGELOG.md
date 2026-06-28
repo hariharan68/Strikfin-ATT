@@ -23,7 +23,7 @@ Generated the first complete documentation set covering all layers of the platfo
 - `docs/ROADMAP.md`
 
 **Platform state at this version:**
-- Backend: FastAPI + SQLAlchemy async, MSSQL via Windows Auth
+- Backend: FastAPI + SQLAlchemy async, PostgreSQL via asyncpg
 - Engines: options_math, regime (7-state), synthesizer, short_covering
 - Providers: mock (default) + Fyers (live)
 - LLM: openai / anthropic / none (rule-based fallback)

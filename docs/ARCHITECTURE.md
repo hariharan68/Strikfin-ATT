@@ -20,12 +20,12 @@
 │  Router → Service → Engine → Provider                       │
 │  Swagger UI at /docs · ReDoc at /redoc                      │
 └────────────────────────┬────────────────────────────────────┘
-                         │ SQLAlchemy async (aioodbc)
+                         │ SQLAlchemy async (asyncpg)
 ┌────────────────────────▼────────────────────────────────────┐
-│  DATABASE  (Microsoft SQL Server)                           │
-│  Windows Authentication — no username/password in code      │
-│  Named instance, e.g. MACHINE\SQLEXPRESS                    │
-│  Database: StrikfinDB                                     │
+│  DATABASE  (PostgreSQL 16+)                                 │
+│  User + password auth (credentials in .env)                 │
+│  Default host: localhost:5432                               │
+│  Database: StrikfinDB                                       │
 └─────────────────────────────────────────────────────────────┘
 ```
 

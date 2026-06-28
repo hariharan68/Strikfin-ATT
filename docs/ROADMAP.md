@@ -81,6 +81,6 @@ No production deployment configuration exists at this time. The application is c
 
 Likely future stack:
 - Backend: Uvicorn behind Nginx or Azure App Service
-- Database: Azure SQL (managed MSSQL) or on-premises SQL Server
+- Database: Managed PostgreSQL (Azure Database for PostgreSQL / Amazon RDS) or self-hosted PostgreSQL
 - Frontend: Static build served via Nginx or Azure Static Web Apps
 - Environment: Docker Compose for local parity; Azure Container Apps or similar for production

@@ -1,8 +1,7 @@
 """
 db/session.py
 -------------
-MSSQL async engine and session factory.
-Windows Authentication — no username/password in connection string.
+PostgreSQL async engine and session factory (asyncpg driver).
 """
 from sqlalchemy.ext.asyncio import (
     AsyncSession,

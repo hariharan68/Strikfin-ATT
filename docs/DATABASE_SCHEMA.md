@@ -1,8 +1,8 @@
 # Database Schema
 
-Database: **StrikfinDB** (Microsoft SQL Server)
-Connection: Windows Authentication (`Trusted_Connection=yes`)
-ORM: SQLAlchemy 2.0 async
+Database: **StrikfinDB** (PostgreSQL 16+)
+Connection: host/port with user + password (`postgresql+asyncpg://…`)
+ORM: SQLAlchemy 2.0 async (asyncpg driver)
 
 All market data tables are **append-only** — rows are inserted, never updated in place. The auth tables (`users`, `refresh_tokens`) are the only mutable tables.
 
@@ -20,7 +20,7 @@ Single-user platform auth. Stores the application owner's account.
 | `email` | VARCHAR(255) | No | — | Unique, indexed |
 | `password_hash` | VARCHAR(255) | No | — | bcrypt hash |
 | `display_name` | VARCHAR(100) | Yes | NULL | |
-| `is_active` | BIT | No | `True` | Soft-disable without deleting |
+| `is_active` | BOOLEAN | No | `True` | Soft-disable without deleting |
 | `created_at` | DATETIME | No | `utcnow()` | |
 | `last_login_at` | DATETIME | Yes | NULL | Updated on each login |
 
@@ -56,7 +56,7 @@ Lookup table for the two tracked instruments.
 | `symbol` | VARCHAR(20) | No | — | Unique. E.g. `NIFTY50`, `SENSEX` |
 | `exchange` | VARCHAR(10) | No | — | `NSE` or `BSE` |
 | `lot_size` | INT | No | — | Current lot size for F&O |
-| `is_active` | BIT | No | `True` | |
+| `is_active` | BOOLEAN | No | `True` | |
 
 ---
 
@@ -147,7 +147,7 @@ EOD FII/DII cash and futures flow data. Append-only.
 | `net_value_cr` | DECIMAL(16,2) | Yes | NULL | Net (buy − sell) in ₹ crore |
 | `long_contracts` | BIGINT | Yes | NULL | FII long contracts (IDX_FUT segment only) |
 | `short_contracts` | BIGINT | Yes | NULL | FII short contracts (IDX_FUT segment only) |
-| `is_provisional` | BIT | No | `True` | False once NSDL/CDSL final data confirmed |
+| `is_provisional` | BOOLEAN | No | `True` | False once NSDL/CDSL final data confirmed |
 | `source_ts` | DATETIME | No | — | When data was sourced |
 
 **Unique constraint:** `uq_inst` on (`trade_date`, `category`, `segment`, `is_provisional`)
