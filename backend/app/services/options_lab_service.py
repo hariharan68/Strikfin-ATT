@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 _SYMBOLS = {1: "NIFTY 50", 2: "SENSEX"}
 _MARKET_OPEN = time(9, 15)
+_MARKET_CLOSE = time(15, 30)
 
 
 def _f(v) -> float:
@@ -137,6 +138,11 @@ class OptionsLabService:
             pcr_now, tot_call_now - tot_call_open, tot_put_now - tot_put_open
         )
 
+        # Per-snapshot Call/Put OI for the interactive time-range slider. Aligned
+        # to `strikes` order so the client can recompute the open→now build-up for
+        # any selected (open, now) pair of points. Empty when <2 snapshots exist.
+        oi_series = await self._intraday_oi_series(instrument_id, strikes)
+
         return {
             "instrument_id":      instrument_id,
             "symbol":             _SYMBOLS.get(instrument_id, "NIFTY 50"),
@@ -155,18 +161,187 @@ class OptionsLabService:
             "total_put_oi_chg":   tot_put_now - tot_put_open,
             "sentiment":          sentiment,
             "strikes":            out_strikes,
+            "series":             oi_series,
+        }
+
+    async def get_oi_series(self, instrument_id: int, window: int = 20) -> dict:
+        """
+        Intraday *time-series* of OI / Volume / OI-change per strike, used by the
+        Options Lab → Multi OI & Volume tool.
+
+        Walks every option-chain snapshot at/after 09:15 IST on the latest trade
+        date and returns, for a window of strikes around ATM:
+          • ``contracts`` — the selectable CE/PE legs in the window.
+          • ``default_ids`` — the highest-OI legs (the "High OI" default selection).
+          • ``series`` — one entry per snapshot, with the future price and arrays
+            of oi / volume / oi_change aligned to ``contracts``.
+
+        Degrades gracefully: a single snapshot yields a one-point series
+        (``data_quality = "live_proxy"``); no data yields an empty series.
+        """
+        snaps = await self._day_snapshots(instrument_id)
+
+        if not snaps:
+            # No DB history — fall back to one live chain as a single point.
+            return self._live_series(instrument_id, window)
+
+        latest = snaps[-1]
+        # The first snapshot *after* 15:30 IST holds the official close (the
+        # provider returns the frozen EOD chain after market hours). We append it
+        # as a single closing point so the chart reaches market end even when
+        # intraday ingestion stopped early — without dragging the full, flat
+        # after-hours tail onto the chart.
+        close_snap = await self._close_snapshot(instrument_id, latest.trade_date)
+
+        # Bulk-load rows for every snapshot in one query, then reuse the latest
+        # snapshot's rows here instead of issuing a second query for them.
+        snap_ids = [s.snapshot_id for s in snaps]
+        if close_snap is not None:
+            snap_ids.append(close_snap.snapshot_id)
+        rows_by_snap = await self._rows_by_snapshot(snap_ids, with_vol=True)
+        latest_rows = rows_by_snap.get(latest.snapshot_id, [])
+        if not latest_rows:
+            return self._live_series(instrument_id, window)
+
+        strikes = sorted({r["strike"] for r in latest_rows})
+        spot = self._spot_for(instrument_id, latest_rows)
+        atm = atm_strike(spot, strikes) if strikes else spot
+
+        # Strike window around ATM keeps the payload lean while covering the
+        # high-OI strikes the tool actually plots.
+        atm_i = min(range(len(strikes)), key=lambda i: abs(strikes[i] - atm)) if strikes else 0
+        lo_i = max(0, atm_i - window)
+        hi_i = min(len(strikes), atm_i + window + 1)
+        win_strikes = strikes[lo_i:hi_i]
+
+        # Stable contract list (strike asc, CE before PE) — only legs present now.
+        latest_idx = {(r["strike"], r["option_type"]): r for r in latest_rows}
+        contracts: list[dict] = []
+        for s in win_strikes:
+            for opt in ("CE", "PE"):
+                if (s, opt) in latest_idx:
+                    contracts.append({
+                        "id":     f"{int(s)}{opt}",
+                        "strike": s,
+                        "type":   opt,
+                    })
+        key_of = {(c["strike"], c["type"]): i for i, c in enumerate(contracts)}
+
+        # "High OI" default — the N highest-OI legs in the window (mixed CE/PE).
+        ranked = sorted(
+            contracts,
+            key=lambda c: _i(latest_idx[(c["strike"], c["type"])].get("oi")),
+            reverse=True,
+        )
+        default_ids = [c["id"] for c in ranked[:5]]
+        # "High Volume" default — the N highest-volume legs in the window.
+        ranked_vol = sorted(
+            contracts,
+            key=lambda c: _i(latest_idx[(c["strike"], c["type"])].get("volume")),
+            reverse=True,
+        )
+        default_vol_ids = [c["id"] for c in ranked_vol[:5]]
+
+        # Build aligned per-point arrays from the already-loaded snapshot rows.
+        n = len(contracts)
+        series: list[dict] = []
+        for snap in snaps:
+            idx = {(r["strike"], r["option_type"]): r
+                   for r in rows_by_snap.get(snap.snapshot_id, [])}
+            oi = [None] * n
+            vol = [None] * n
+            chg = [None] * n
+            for (strike, opt), r in idx.items():
+                i = key_of.get((strike, opt))
+                if i is None:
+                    continue
+                oi[i] = _i(r.get("oi"))
+                vol[i] = _i(r.get("volume"))
+                chg[i] = _i(r.get("oi_change"))
+            series.append({
+                "t":   snap.snap_ts.replace(tzinfo=timezone.utc).isoformat(),
+                "fut": _f(snap.spot),
+                "oi":  oi,
+                "vol": vol,
+                "chg": chg,
+            })
+
+        # Append the official close as a final point anchored at 15:30 IST, so the
+        # line extends to market end. Only when the close is genuinely after the
+        # last intraday snapshot (i.e. intraday ingestion ended before the close).
+        if close_snap is not None and snaps[-1].snap_ts < self._market_close_dt(latest.trade_date).replace(tzinfo=None):
+            close_rows = rows_by_snap.get(close_snap.snapshot_id, [])
+            if close_rows:
+                cidx = {(r["strike"], r["option_type"]): r for r in close_rows}
+                oi = [None] * n
+                vol = [None] * n
+                chg = [None] * n
+                for (strike, opt), r in cidx.items():
+                    i = key_of.get((strike, opt))
+                    if i is None:
+                        continue
+                    oi[i] = _i(r.get("oi"))
+                    vol[i] = _i(r.get("volume"))
+                    chg[i] = _i(r.get("oi_change"))
+                series.append({
+                    "t":   self._market_close_dt(latest.trade_date).isoformat(),
+                    "fut": _f(close_snap.spot),
+                    "oi":  oi,
+                    "vol": vol,
+                    "chg": chg,
+                })
+
+        quality = "intraday" if len(series) >= 2 else "live_proxy"
+        return {
+            "instrument_id": instrument_id,
+            "symbol":        _SYMBOLS.get(instrument_id, "NIFTY 50"),
+            "lot_size":      LOT_SIZE.get(instrument_id, 75),
+            "spot":          round(spot, 2),
+            "atm_strike":    atm,
+            "trade_date":    latest.trade_date.isoformat(),
+            "open_ts":       series[0]["t"] if series else None,
+            "now_ts":        series[-1]["t"] if series else None,
+            "data_quality":  quality,
+            "contracts":     contracts,
+            "default_ids":   default_ids,
+            "default_vol_ids": default_vol_ids,
+            "series":        series,
         }
 
     # ─────────────────────────────────────────────────────────
     # SERIES RESOLUTION
     # ─────────────────────────────────────────────────────────
 
-    async def _resolve_series(self, instrument_id: int):
+    def _market_close_dt(self, trade_date) -> datetime:
+        """15:30 IST on trade_date, as a tz-aware UTC datetime."""
+        return datetime.combine(trade_date, _MARKET_CLOSE, tzinfo=_IST).astimezone(timezone.utc)
+
+    def _in_session(self, snap_ts: datetime) -> bool:
         """
-        Returns (now_rows, open_rows, now_ts_iso, open_ts_iso, quality).
-        now_rows/open_rows are lists of {strike, option_type, oi, oi_change}.
+        True if a snapshot falls within NSE/BSE cash hours (Mon–Fri 09:15–15:30
+        IST). ``snap_ts`` is stored as naive UTC, so we attach UTC then convert.
         """
-        # Latest snapshot for this instrument.
+        ist = snap_ts.replace(tzinfo=timezone.utc).astimezone(_IST)
+        if ist.weekday() >= 5:  # Sat/Sun
+            return False
+        return _MARKET_OPEN <= ist.time() <= _MARKET_CLOSE
+
+    async def _latest_session_snapshot(self, instrument_id: int):
+        """
+        Most recent snapshot that falls *within* market hours.
+
+        The scheduler can persist snapshots outside cash hours (after-hours and
+        weekend polling when ``INGEST_MARKET_HOURS_ONLY`` is off). Anchoring the
+        OI view to the raw latest snapshot then produces a meaningless evening
+        window (e.g. 7:11pm → 10:21pm on a Saturday). Scanning newest-first for
+        the first in-session snapshot instead anchors us to the last real trading
+        session — exactly what the reference UI shows when the market is closed.
+
+        Falls back to the latest snapshot if none in the recent window are in
+        session (so the view still degrades gracefully rather than going blank).
+        """
+        # Fast path: during market hours the newest snapshot is already in
+        # session — one cheap row, no wide scan.
         latest = (
             await self.db.execute(
                 select(OptionChainSnapshot)
@@ -175,18 +350,247 @@ class OptionsLabService:
                 .limit(1)
             )
         ).scalar_one_or_none()
+        if latest is None or self._in_session(latest.snap_ts):
+            return latest
+
+        # Market closed — scan back for the last in-session snapshot.
+        candidates = (
+            await self.db.execute(
+                select(OptionChainSnapshot)
+                .where(OptionChainSnapshot.instrument_id == instrument_id)
+                .order_by(OptionChainSnapshot.snap_ts.desc())
+                .limit(3000)  # ~10 trading days of 5-min snapshots — covers long weekends/holidays
+            )
+        ).scalars().all()
+        for snap in candidates:
+            if self._in_session(snap.snap_ts):
+                return snap
+        return latest
+
+    async def _close_snapshot(self, instrument_id: int, trade_date):
+        """
+        First snapshot after 15:30 IST on the trade date — the frozen EOD chain
+        the provider serves once the market has closed (i.e. the official close).
+        """
+        market_close = self._market_close_dt(trade_date).replace(tzinfo=None)
+        return (
+            await self.db.execute(
+                select(OptionChainSnapshot)
+                .where(
+                    OptionChainSnapshot.instrument_id == instrument_id,
+                    OptionChainSnapshot.trade_date == trade_date,
+                    OptionChainSnapshot.snap_ts > market_close,
+                )
+                .order_by(OptionChainSnapshot.snap_ts.asc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+    async def _day_snapshots(self, instrument_id: int):
+        """
+        All in-session snapshots (09:15–15:30 IST) on the latest *trading*
+        session, ascending. Anchors to the last in-session snapshot, so on
+        weekends/holidays/after-hours it returns the last real session rather
+        than an empty set or a stale after-hours tail.
+        """
+        latest = await self._latest_session_snapshot(instrument_id)
+        if latest is None:
+            return []
+        market_open = self._market_open_dt(latest.trade_date).replace(tzinfo=None)
+        # Cap at 15:30 IST — the scheduler keeps ingesting after the close (its
+        # market-hours gate runs in UTC on Windows), which would otherwise tack a
+        # flat, stale-OI tail and bogus late-evening x-axis labels onto the chart.
+        market_close = (
+            datetime.combine(latest.trade_date, _MARKET_CLOSE, tzinfo=_IST)
+            .astimezone(timezone.utc)
+            .replace(tzinfo=None)
+        )
+        return (
+            await self.db.execute(
+                select(OptionChainSnapshot)
+                .where(
+                    OptionChainSnapshot.instrument_id == instrument_id,
+                    OptionChainSnapshot.trade_date == latest.trade_date,
+                    OptionChainSnapshot.snap_ts >= market_open,
+                    OptionChainSnapshot.snap_ts <= market_close,
+                )
+                .order_by(OptionChainSnapshot.snap_ts.asc())
+            )
+        ).scalars().all()
+
+    async def _intraday_oi_series(self, instrument_id: int, strike_axis: list[float]) -> list[dict]:
+        """
+        Call/Put OI at every in-session snapshot of the latest trading session,
+        aligned to ``strike_axis`` (the strike order of the returned ``strikes``).
+
+        Powers the Open Interest tool's interactive time-range slider: the client
+        picks any (open, now) pair of points and recomputes the per-strike OI
+        build-up locally. Returns ``[]`` when fewer than 2 snapshots exist (there
+        is nothing to scrub — the static open→now view is used instead).
+        """
+        snaps = await self._day_snapshots(instrument_id)
+        if len(snaps) < 2:
+            return []
+        axis = {s: i for i, s in enumerate(strike_axis)}
+        n = len(strike_axis)
+
+        # Append the official close (frozen EOD chain just after 15:30) as a final
+        # point anchored at 15:30, so the slider reaches market end even when
+        # intraday ingestion stopped early (e.g. the last live snapshot was 2:52pm).
+        trade_date = snaps[-1].trade_date
+        market_close = self._market_close_dt(trade_date).replace(tzinfo=None)
+        close_snap = await self._close_snapshot(instrument_id, trade_date)
+        append_close = close_snap is not None and snaps[-1].snap_ts < market_close
+
+        snap_ids = [s.snapshot_id for s in snaps]
+        if append_close:
+            snap_ids.append(close_snap.snapshot_id)
+        rows_by = await self._rows_by_snapshot(snap_ids)
+
+        def _point(snapshot_id: int, t_iso: str) -> dict:
+            call: list[int | None] = [None] * n
+            put: list[int | None] = [None] * n
+            for r in rows_by.get(snapshot_id, []):
+                i = axis.get(r["strike"])
+                if i is None:
+                    continue
+                if r["option_type"] == "CE":
+                    call[i] = _i(r.get("oi"))
+                else:
+                    put[i] = _i(r.get("oi"))
+            return {"t": t_iso, "call": call, "put": put}
+
+        out: list[dict] = [
+            _point(snap.snapshot_id, snap.snap_ts.replace(tzinfo=timezone.utc).isoformat())
+            for snap in snaps
+        ]
+        if append_close:
+            out.append(_point(close_snap.snapshot_id, self._market_close_dt(trade_date).isoformat()))
+        return out
+
+    async def _rows_by_snapshot(self, snapshot_ids: list[int], with_vol: bool = False):
+        """Bulk-load OptionChainRows for many snapshots, grouped by snapshot_id."""
+        if not snapshot_ids:
+            return {}
+        rows = (
+            await self.db.execute(
+                select(OptionChainRow).where(
+                    OptionChainRow.snapshot_id.in_(snapshot_ids)
+                )
+            )
+        ).scalars().all()
+        out: dict[int, list[dict]] = {}
+        for r in rows:
+            d = {
+                "strike":      _f(r.strike),
+                "option_type": r.option_type,
+                "oi":          _i(r.oi),
+                "oi_change":   _i(r.oi_change),
+            }
+            if with_vol:
+                d["volume"] = _i(r.volume)
+            out.setdefault(r.snapshot_id, []).append(d)
+        return out
+
+    def _live_series(self, instrument_id: int, window: int) -> dict:
+        """No DB history — one live chain rendered as a single series point."""
+        chain = get_option_chain(instrument_id)
+        rows = [
+            {
+                "strike":      _f(r["strike"]),
+                "option_type": r["option_type"],
+                "oi":          _i(r.get("oi")),
+                "oi_change":   _i(r.get("oi_change")),
+                "volume":      _i(r.get("volume")),
+            }
+            for r in chain.get("rows", [])
+        ]
+        if not rows:
+            return {
+                "instrument_id": instrument_id,
+                "symbol":        _SYMBOLS.get(instrument_id, "NIFTY 50"),
+                "lot_size":      LOT_SIZE.get(instrument_id, 75),
+                "spot":          0.0,
+                "atm_strike":    0.0,
+                "trade_date":    datetime.now(_IST).date().isoformat(),
+                "open_ts":       None,
+                "now_ts":        datetime.now(timezone.utc).isoformat(),
+                "data_quality":  "empty",
+                "contracts":     [],
+                "default_ids":   [],
+                "default_vol_ids": [],
+                "series":        [],
+            }
+        strikes = sorted({r["strike"] for r in rows})
+        spot = self._spot_for(instrument_id, rows)
+        atm = atm_strike(spot, strikes) if strikes else spot
+        atm_i = min(range(len(strikes)), key=lambda i: abs(strikes[i] - atm))
+        lo_i = max(0, atm_i - window)
+        hi_i = min(len(strikes), atm_i + window + 1)
+        win_strikes = strikes[lo_i:hi_i]
+        idx = {(r["strike"], r["option_type"]): r for r in rows}
+
+        contracts: list[dict] = []
+        for s in win_strikes:
+            for opt in ("CE", "PE"):
+                if (s, opt) in idx:
+                    contracts.append({"id": f"{int(s)}{opt}", "strike": s, "type": opt})
+
+        oi = [_i(idx[(c["strike"], c["type"])].get("oi")) for c in contracts]
+        vol = [_i(idx[(c["strike"], c["type"])].get("volume")) for c in contracts]
+        chg = [_i(idx[(c["strike"], c["type"])].get("oi_change")) for c in contracts]
+        ranked = sorted(contracts, key=lambda c: _i(idx[(c["strike"], c["type"])].get("oi")), reverse=True)
+        ranked_vol = sorted(contracts, key=lambda c: _i(idx[(c["strike"], c["type"])].get("volume")), reverse=True)
+        now_ts = datetime.now(timezone.utc).isoformat()
+
+        return {
+            "instrument_id": instrument_id,
+            "symbol":        _SYMBOLS.get(instrument_id, "NIFTY 50"),
+            "lot_size":      LOT_SIZE.get(instrument_id, 75),
+            "spot":          round(spot, 2),
+            "atm_strike":    atm,
+            "trade_date":    datetime.now(_IST).date().isoformat(),
+            "open_ts":       now_ts,
+            "now_ts":        now_ts,
+            "data_quality":  "live_proxy",
+            "contracts":     contracts,
+            "default_ids":   [c["id"] for c in ranked[:5]],
+            "default_vol_ids": [c["id"] for c in ranked_vol[:5]],
+            "series":        [{"t": now_ts, "fut": round(spot, 2), "oi": oi, "vol": vol, "chg": chg}],
+        }
+
+    async def _resolve_series(self, instrument_id: int):
+        """
+        Returns (now_rows, open_rows, now_ts_iso, open_ts_iso, quality).
+        now_rows/open_rows are lists of {strike, option_type, oi, oi_change}.
+        """
+        # Anchor to the latest *in-session* snapshot. When the market is closed
+        # (after-hours, weekend, holiday) the scheduler may still persist
+        # out-of-session snapshots; anchoring to those shows a bogus late-evening
+        # window. Falling back to the last real session makes the view read
+        # 09:15 → 15:30 — what the reference UI shows when the market is closed.
+        latest = await self._latest_session_snapshot(instrument_id)
 
         if latest is None:
             # No DB history yet → one live chain call (proxy baseline).
             return self._live_proxy(instrument_id)
 
-        # Earliest snapshot at/after 09:15 IST on the latest trade date.
+        # Earliest snapshot at/after 09:15 IST on the session's trade date.
         earliest = await self._earliest_after_open(instrument_id, latest)
 
-        now_rows = await self._rows_for(latest.snapshot_id)
+        # Prefer the official close (the frozen EOD chain captured just after
+        # 15:30) as the "now" anchor, so the view reaches market end even when
+        # intraday ingestion stopped early (e.g. the last live snapshot was 2:52pm).
+        now_snap = latest
         now_ts = latest.snap_ts.replace(tzinfo=timezone.utc).isoformat()
+        close_snap = await self._close_snapshot(instrument_id, latest.trade_date)
+        if close_snap is not None and close_snap.snap_ts > latest.snap_ts:
+            now_snap = close_snap
+            now_ts = self._market_close_dt(latest.trade_date).isoformat()
 
-        if earliest is not None and earliest.snapshot_id != latest.snapshot_id:
+        now_rows = await self._rows_for(now_snap.snapshot_id)
+
+        if earliest is not None and earliest.snapshot_id != now_snap.snapshot_id:
             open_rows = await self._rows_for(earliest.snapshot_id)
             open_ts = earliest.snap_ts.replace(tzinfo=timezone.utc).isoformat()
             return now_rows, open_rows, now_ts, open_ts, "intraday"

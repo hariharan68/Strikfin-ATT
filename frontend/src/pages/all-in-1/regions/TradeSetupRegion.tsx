@@ -1,3 +1,4 @@
+import { Target, Settings2, DoorOpen, Coins } from 'lucide-react'
 import type { TradeSetup } from '../allInOne.types'
 
 function Stat({ label, value, accent }: { label: string; value: string; accent?: string }) {
@@ -15,7 +16,7 @@ export function TradeSetupRegion({ setup }: { setup: TradeSetup }) {
     <div className="rounded-xl border-2 border-primary-200 bg-white p-5">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-          <span aria-hidden>🎯</span>
+          <Target size={16} aria-hidden />
           Recommended trade setup
         </div>
         <span className="rounded-md bg-primary-100 px-3 py-1 text-xs font-medium text-primary-700">
@@ -31,9 +32,9 @@ export function TradeSetupRegion({ setup }: { setup: TradeSetup }) {
       </div>
 
       <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
-        <span>⚙️ Adjust: {setup.adjustment}</span>
-        <span>🚪 Exit: {setup.exit}</span>
-        <span>🪙 Size: {setup.sizing}</span>
+        <span className="flex items-center gap-1.5"><Settings2 size={13} /> Adjust: {setup.adjustment}</span>
+        <span className="flex items-center gap-1.5"><DoorOpen size={13} /> Exit: {setup.exit}</span>
+        <span className="flex items-center gap-1.5"><Coins size={13} /> Size: {setup.sizing}</span>
       </div>
     </div>
   )

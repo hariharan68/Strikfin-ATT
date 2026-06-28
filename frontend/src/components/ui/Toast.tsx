@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import type { LucideIcon } from 'lucide-react'
+import { AlertTriangle, Check, Info } from 'lucide-react'
 import { cn } from '../../lib/format'
 
 type ToastType = 'error' | 'success' | 'info'
@@ -18,10 +20,10 @@ interface ToastContextValue {
 
 const ToastContext = createContext<ToastContextValue | null>(null)
 
-const TONE: Record<ToastType, { ring: string; icon: string; iconColor: string }> = {
-  error: { ring: 'border-rose-200', icon: '⚠', iconColor: 'text-rose-500' },
-  success: { ring: 'border-emerald-200', icon: '✓', iconColor: 'text-emerald-500' },
-  info: { ring: 'border-primary-200', icon: 'ℹ', iconColor: 'text-primary-600' },
+const TONE: Record<ToastType, { ring: string; Icon: LucideIcon; iconColor: string }> = {
+  error: { ring: 'border-rose-200', Icon: AlertTriangle, iconColor: 'text-rose-500' },
+  success: { ring: 'border-emerald-200', Icon: Check, iconColor: 'text-emerald-500' },
+  info: { ring: 'border-primary-200', Icon: Info, iconColor: 'text-primary-600' },
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -53,21 +55,22 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={value}>
       {children}
       <div className="pointer-events-none fixed right-4 top-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2">
-        {toasts.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => remove(t.id)}
-            className={cn(
-              'animate-toast-in pointer-events-auto flex items-start gap-3 rounded-xl border bg-white px-4 py-3 text-left shadow-lg shadow-slate-900/5',
-              TONE[t.type].ring,
-            )}
-          >
-            <span className={cn('mt-0.5 text-sm font-bold', TONE[t.type].iconColor)}>
-              {TONE[t.type].icon}
-            </span>
-            <span className="text-sm leading-snug text-slate-700">{t.message}</span>
-          </button>
-        ))}
+        {toasts.map((t) => {
+          const { ring, Icon, iconColor } = TONE[t.type]
+          return (
+            <button
+              key={t.id}
+              onClick={() => remove(t.id)}
+              className={cn(
+                'animate-toast-in pointer-events-auto flex items-start gap-3 rounded-xl border bg-white px-4 py-3 text-left shadow-lg shadow-slate-900/5',
+                ring,
+              )}
+            >
+              <Icon size={16} strokeWidth={2.5} className={cn('mt-0.5 shrink-0', iconColor)} />
+              <span className="text-sm leading-snug text-slate-700">{t.message}</span>
+            </button>
+          )
+        })}
       </div>
     </ToastContext.Provider>
   )

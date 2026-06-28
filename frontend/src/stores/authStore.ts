@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import type { User } from '../api/endpoints'
 
-const USER_KEY = 'alphalytic_user'
-const REFRESH_TOKEN_KEY = 'alphalytic_refresh_token'
+const USER_KEY = 'strikfin_user'
+const REFRESH_TOKEN_KEY = 'strikfin_refresh_token'
 
 interface AuthState {
   /** Short-lived access token, kept in memory only. */

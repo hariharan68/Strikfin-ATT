@@ -10,7 +10,7 @@ Case-insensitive. Extra variables in `.env` are silently ignored.
 
 | Variable | Default | Required | Sensitive | Purpose |
 |---|---|---|---|---|
-| `APP_NAME` | `Alphalytic AI` | No | No | Display name (used in logs) |
+| `APP_NAME` | `Strikfin` | No | No | Display name (used in logs) |
 | `APP_ENV` | `development` | No | No | `development` or `production` |
 | `DEBUG` | `True` | No | No | Enables FastAPI debug mode and verbose errors |
 
@@ -37,7 +37,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 | Variable | Default | Required | Sensitive | Purpose |
 |---|---|---|---|---|
 | `DB_SERVER` | `SRIHARIHARAN\SQLEXPRESS` | **Yes** | No | SQL Server host and optional instance name |
-| `DB_NAME` | `AlphalyticDB` | No | No | Database name |
+| `DB_NAME` | `StrikfinDB` | No | No | Database name |
 | `DB_DRIVER` | `ODBC Driver 17 for SQL Server` | No | No | ODBC driver string (must match installed driver exactly) |
 
 The `DATABASE_URL` property is assembled at runtime:
@@ -99,7 +99,7 @@ Only relevant when `MARKET_DATA_VENDOR=fyers`. All default to empty string.
 
 Example for multiple origins:
 ```ini
-ALLOWED_ORIGINS=http://localhost:5173,https://app.alphalytic.ai
+ALLOWED_ORIGINS=http://localhost:5173,https://app.strikfin.ai
 ```
 
 ---
@@ -109,7 +109,7 @@ ALLOWED_ORIGINS=http://localhost:5173,https://app.alphalytic.ai
 ```ini
 SECRET_KEY=replace-with-32-char-random-string
 DB_SERVER=YOURMACHINE\SQLEXPRESS
-DB_NAME=AlphalyticDB
+DB_NAME=StrikfinDB
 MARKET_DATA_VENDOR=mock
 LLM_PROVIDER=none
 ```
@@ -119,7 +119,7 @@ LLM_PROVIDER=none
 ```ini
 SECRET_KEY=replace-with-32-char-random-string
 DB_SERVER=YOURMACHINE\SQLEXPRESS
-DB_NAME=AlphalyticDB
+DB_NAME=StrikfinDB
 DB_DRIVER=ODBC Driver 17 for SQL Server
 
 MARKET_DATA_VENDOR=fyers

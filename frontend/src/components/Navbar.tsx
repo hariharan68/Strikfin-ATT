@@ -1,6 +1,41 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import {
+  Zap,
+  Construction,
+  Layers,
+  BarChart3,
+  BarChart2,
+  Scale,
+  Target,
+  Activity,
+  GitCompare,
+  LineChart,
+  Workflow,
+  Sparkles,
+  Wind,
+  CandlestickChart,
+  Timer,
+  AreaChart,
+  Network,
+  Waves,
+  Gauge,
+  Percent,
+  Grid3x3,
+  Sigma,
+  GitBranch,
+  Flame,
+  Bell,
+  TrendingUp,
+  PieChart,
+  DollarSign,
+  Landmark,
+  LayoutGrid,
+  Bot,
+  Table,
+  type LucideIcon,
+} from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { logout as logoutRequest } from '../api/endpoints'
 import { REFRESH_TOKEN_KEY } from '../stores/authStore'
@@ -23,12 +58,15 @@ interface NavGroupItem {
   to: string
   icon: ReactNode
   description: string
+  /** Column header this item is grouped under in the mega-menu. */
+  category: string
   isActive: (pathname: string) => boolean
 }
 
 interface NavGroup {
   kind: 'group'
   label: string
+  subtitle: string
   isActive: (pathname: string, search: string) => boolean
   items: NavGroupItem[]
 }
@@ -37,6 +75,7 @@ interface MegaItem {
   label: string
   slug: string
   isNew?: boolean
+  icon: LucideIcon
 }
 
 interface MegaCategory {
@@ -47,72 +86,25 @@ interface MegaCategory {
 interface NavMega {
   kind: 'mega'
   label: string
+  /** Route the items link to, e.g. `/options-lab` → `/options-lab?tool=<slug>`. */
+  basePath: string
+  /** Small line under the mega-menu title. */
+  subtitle: string
   isActive: (pathname: string, search: string) => boolean
   categories: MegaCategory[]
 }
 
-type NavEntry = NavItem | NavGroup | NavMega
+/** A placeholder tab for a feature that's still under development. */
+interface NavSoon {
+  kind: 'soon'
+  label: string
+  /** Show a dropdown caret (mirrors the dropdown-style tabs). */
+  hasMenu?: boolean
+}
+
+type NavEntry = NavItem | NavGroup | NavMega | NavSoon
 
 // ── Icons ──────────────────────────────────────────────────────────
-
-function AdvanceOIIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="18" y="3" width="4" height="18" rx="1" />
-      <rect x="10" y="8" width="4" height="13" rx="1" />
-      <rect x="2" y="13" width="4" height="8" rx="1" />
-    </svg>
-  )
-}
-
-function SignalsIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-    </svg>
-  )
-}
-
-function SmartMoneyIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="1" x2="12" y2="23" />
-      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-    </svg>
-  )
-}
-
-function InstitutionalIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="3" y1="21" x2="21" y2="21" />
-      <path d="M3 10 12 3l9 7" />
-      <line x1="5" y1="21" x2="5" y2="10" />
-      <line x1="19" y1="21" x2="19" y2="10" />
-      <line x1="9" y1="21" x2="9" y2="13" />
-      <line x1="15" y1="21" x2="15" y2="13" />
-    </svg>
-  )
-}
-
-function AllInOneIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
-    </svg>
-  )
-}
-
-function CopilotIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-    </svg>
-  )
-}
 
 function MoonIcon() {
   return (
@@ -175,56 +167,98 @@ const OPTIONS_LAB_CATEGORIES: MegaCategory[] = [
   {
     title: 'OI Tools',
     items: [
-      { label: 'Open Interest',    slug: 'open-interest' },
-      { label: 'Multi OI & Volume',slug: 'multi-oi-volume' },
-      { label: 'Put-Call Ratio',   slug: 'put-call-ratio' },
-      { label: 'Max Pain',         slug: 'max-pain' },
-      { label: 'Gamma Exposure',   slug: 'gamma-exposure', isNew: true },
+      { label: 'Open Interest',    slug: 'open-interest',    icon: Layers },
+      { label: 'Multi OI & Volume',slug: 'multi-oi-volume',  icon: BarChart3 },
+      { label: 'Put-Call Ratio',   slug: 'put-call-ratio',   icon: Scale },
+      { label: 'Max Pain',         slug: 'max-pain',         icon: Target },
+      { label: 'Gamma Exposure',   slug: 'gamma-exposure',   icon: Activity, isNew: true },
     ],
   },
   {
     title: 'Popular Tools',
     items: [
-      { label: 'PE-CE Difference', slug: 'pe-ce-difference' },
-      { label: 'Timeseries',       slug: 'timeseries' },
-      { label: 'Strategy Chart',   slug: 'strategy-chart' },
-      { label: 'Smart OI',         slug: 'smart-oi',        isNew: true },
-      { label: 'Vega Analysis',    slug: 'vega-analysis',   isNew: true },
+      { label: 'PE-CE Difference', slug: 'pe-ce-difference', icon: GitCompare },
+      { label: 'Timeseries',       slug: 'timeseries',       icon: LineChart },
+      { label: 'Strategy Chart',   slug: 'strategy-chart',   icon: Workflow },
+      { label: 'Smart OI',         slug: 'smart-oi',         icon: Sparkles, isNew: true },
+      { label: 'Vega Analysis',    slug: 'vega-analysis',    icon: Wind,     isNew: true },
     ],
   },
   {
     title: 'Price Tools',
     items: [
-      { label: 'ATM Straddle Chart',   slug: 'atm-straddle-chart' },
-      { label: 'Premium Decay',        slug: 'premium-decay' },
-      { label: 'Price vs OI',          slug: 'price-vs-oi' },
-      { label: 'MultiStrike Chart',    slug: 'multistrike-chart' },
-      { label: 'Multi-Straddle Chart', slug: 'multi-straddle-chart' },
+      { label: 'ATM Straddle Chart',   slug: 'atm-straddle-chart',   icon: CandlestickChart },
+      { label: 'Premium Decay',        slug: 'premium-decay',        icon: Timer },
+      { label: 'Price vs OI',          slug: 'price-vs-oi',          icon: AreaChart },
+      { label: 'MultiStrike Chart',    slug: 'multistrike-chart',    icon: BarChart2 },
+      { label: 'Multi-Straddle Chart', slug: 'multi-straddle-chart', icon: Network },
     ],
   },
   {
     title: 'IV Tools',
     items: [
-      { label: 'Volatility Skew',  slug: 'volatility-skew' },
-      { label: 'IV/HV/IVP Chart',  slug: 'iv-hv-ivp-chart' },
-      { label: 'IV - HV',          slug: 'iv-hv' },
-      { label: 'IV Grid',          slug: 'iv-grid' },
-      { label: 'IV - Intraday',    slug: 'iv-intraday',    isNew: true },
+      { label: 'Volatility Skew',  slug: 'volatility-skew', icon: Waves },
+      { label: 'IV/HV/IVP Chart',  slug: 'iv-hv-ivp-chart', icon: Gauge },
+      { label: 'IV - HV',          slug: 'iv-hv',           icon: Percent },
+      { label: 'IV Grid',          slug: 'iv-grid',         icon: Grid3x3 },
+      { label: 'IV - Intraday',    slug: 'iv-intraday',     icon: Sigma,   isNew: true },
     ],
   },
   {
     title: 'Screeners',
     items: [
-      { label: 'OI Crossover',      slug: 'oi-crossover' },
-      { label: 'Intraday Booster',  slug: 'intraday-booster', isNew: true },
-      { label: 'Option Triggers',   slug: 'option-triggers',  isNew: true },
+      { label: 'OI Crossover',      slug: 'oi-crossover',     icon: GitBranch },
+      { label: 'Intraday Booster',  slug: 'intraday-booster', icon: Flame, isNew: true },
+      { label: 'Option Triggers',   slug: 'option-triggers',  icon: Bell,  isNew: true },
     ],
   },
 ]
 
-// ── Options Lab mega-dropdown ──────────────────────────────────────
+// ── Future Lab mega-menu data ──────────────────────────────────────
 
-function OptionsLabDropdown({
+const FUTURE_LAB_CATEGORIES: MegaCategory[] = [
+  {
+    title: 'Price Tools',
+    items: [
+      { label: 'Future Dashboard', slug: 'future-dashboard', icon: Gauge },
+      { label: 'Market Movers',    slug: 'market-movers',    icon: TrendingUp, isNew: true },
+      { label: 'Future Heatmap',   slug: 'future-heatmap',   icon: Grid3x3 },
+    ],
+  },
+  {
+    title: 'OI Tools',
+    items: [
+      { label: 'Future Intraday',       slug: 'future-intraday',       icon: LineChart },
+      { label: 'Price vs OI',           slug: 'price-vs-oi',           icon: AreaChart },
+      { label: 'Future Sentiment Cycle',slug: 'future-sentiment-cycle',icon: PieChart },
+    ],
+  },
+]
+
+// ── Analyse mega-menu data ─────────────────────────────────────────
+
+const ANALYSE_CATEGORIES: MegaCategory[] = [
+  {
+    title: 'FII / DII',
+    items: [
+      { label: 'FII/DII Summary',     slug: 'fii-dii-summary',     icon: Table },
+      { label: 'FII/DII Cash Market', slug: 'fii-dii-cash-market', icon: LineChart },
+    ],
+  },
+]
+
+// ── Generic mega-dropdown (Options Lab, Future Lab, …) ─────────────
+
+/** Static col-count classes so Tailwind generates them. */
+const MEGA_COLS: Record<number, string> = {
+  1: 'grid-cols-1',
+  2: 'grid-cols-2',
+  3: 'grid-cols-3',
+  4: 'grid-cols-4',
+  5: 'grid-cols-5',
+}
+
+function MegaDropdown({
   entry,
   pathname,
   search,
@@ -234,10 +268,11 @@ function OptionsLabDropdown({
   search: string
 }) {
   const active = entry.isActive(pathname, search)
+  const cols = entry.categories.length
 
   return (
     <Dropdown
-      align="left"
+      align="center"
       menuClassName="p-0 overflow-hidden"
       trigger={({ open, toggle }) => (
         <button
@@ -251,19 +286,19 @@ function OptionsLabDropdown({
       )}
     >
       {(close) => (
-        <div className="w-[860px]">
+        <div style={{ width: Math.max(360, cols * 178) }}>
           {/* Header */}
-          <div className="border-b border-slate-100 px-5 py-3 dark:border-slate-700">
-            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">
-              Options Lab
+          <div className="border-b border-slate-100 px-5 py-3">
+            <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+              {entry.label}
             </p>
-            <p className="mt-0.5 text-[11px] text-slate-400">
-              Advanced analytics toolkit · All modules coming soon
+            <p className="mt-0.5 text-[11px] font-medium text-slate-600">
+              {entry.subtitle}
             </p>
           </div>
 
-          {/* 5-column grid */}
-          <div className="grid grid-cols-5 divide-x divide-slate-100 dark:divide-slate-700/60">
+          {/* Column grid */}
+          <div className={cn('grid divide-x divide-slate-100', MEGA_COLS[cols] ?? 'grid-cols-5')}>
             {entry.categories.map((cat) => (
               <div key={cat.title} className="p-3">
                 {/* Category header */}
@@ -273,19 +308,27 @@ function OptionsLabDropdown({
                 {/* Items */}
                 <ul className="space-y-0.5">
                   {cat.items.map((item) => {
-                    const isActive = pathname === '/options-lab' && search.includes(`tool=${item.slug}`)
+                    const isActive = pathname === entry.basePath && search.includes(`tool=${item.slug}`)
+                    const Icon = item.icon
                     return (
                       <li key={item.slug}>
                         <Link
-                          to={`/options-lab?tool=${item.slug}`}
+                          to={`${entry.basePath}?tool=${item.slug}`}
                           onClick={close}
                           className={cn(
-                            'flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm transition-colors',
+                            'flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors',
                             isActive
                               ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300'
-                              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800/60',
+                              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
                           )}
                         >
+                          <Icon
+                            className={cn(
+                              'h-4 w-4 shrink-0',
+                              isActive ? 'text-primary-600 dark:text-primary-300' : 'text-slate-400',
+                            )}
+                            strokeWidth={1.75}
+                          />
                           <span className="flex-1 leading-snug">{item.label}</span>
                           {item.isNew && (
                             <span className="shrink-0 rounded bg-emerald-500 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
@@ -306,6 +349,31 @@ function OptionsLabDropdown({
   )
 }
 
+/** An "under development" tab — opens a small coming-soon popover instead of navigating. */
+function SoonTab({ label, hasMenu }: { label: string; hasMenu?: boolean }) {
+  return (
+    <Dropdown
+      align="left"
+      trigger={({ open, toggle }) => (
+        <button type="button" onClick={toggle} className={cn(linkClass(false), 'flex items-center gap-1')}>
+          {label}
+          {hasMenu && <ChevronDown open={open} />}
+        </button>
+      )}
+    >
+      {() => (
+        <div className="w-60 p-4 text-center">
+          <div className="mx-auto mb-2.5 flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400">
+            <Construction size={20} />
+          </div>
+          <div className="text-sm font-semibold text-slate-800">{label}</div>
+          <div className="mt-1 text-xs text-slate-500">This module is under development — coming soon.</div>
+        </div>
+      )}
+    </Dropdown>
+  )
+}
+
 // ── Nav entries ────────────────────────────────────────────────────
 
 const NAV_ENTRIES: NavEntry[] = [
@@ -316,60 +384,67 @@ const NAV_ENTRIES: NavEntry[] = [
   {
     kind: 'mega',
     label: 'Options Lab',
+    basePath: '/options-lab',
+    subtitle: 'Advanced analytics toolkit · All modules coming soon',
     isActive: (p) => p.startsWith('/options-lab'),
     categories: OPTIONS_LAB_CATEGORIES,
   } satisfies NavMega,
   {
+    kind: 'mega',
+    label: 'Future Lab',
+    basePath: '/future-lab',
+    subtitle: 'Futures analytics toolkit · All modules in development',
+    isActive: (p) => p.startsWith('/future-lab'),
+    categories: FUTURE_LAB_CATEGORIES,
+  } satisfies NavMega,
+  {
+    kind: 'mega',
+    label: 'Analyse',
+    basePath: '/analyse',
+    subtitle: 'FII / DII participant analytics · In development',
+    isActive: (p) => p.startsWith('/analyse'),
+    categories: ANALYSE_CATEGORIES,
+  } satisfies NavMega,
+  {
     kind: 'group',
     label: 'Smart Insights',
+    subtitle: 'Analytics & intelligence tools',
     isActive: (p) =>
-      p.startsWith('/advance-oi') ||
-      p.startsWith('/signals') ||
       p.startsWith('/smart-money') ||
       p.startsWith('/institutional') ||
       p.startsWith('/all-in-1') ||
       p.startsWith('/copilot'),
     items: [
       {
-        label: 'Advance OI',
-        to: '/advance-oi',
-        icon: <AdvanceOIIcon />,
-        description: 'OI build-up, strike flow & PCR analysis',
-        isActive: (p) => p.startsWith('/advance-oi'),
-      },
-      {
-        label: 'Signals',
-        to: '/signals',
-        icon: <SignalsIcon />,
-        description: 'AI-driven bias & entry signals',
-        isActive: (p) => p.startsWith('/signals'),
-      },
-      {
         label: 'Smart Money',
         to: '/smart-money',
-        icon: <SmartMoneyIcon />,
+        icon: <DollarSign size={18} strokeWidth={1.75} />,
         description: 'FII/DII positioning & institutional flow',
+        category: 'Flow & Positioning',
         isActive: (p) => p.startsWith('/smart-money'),
       },
       {
         label: 'Institutional',
         to: '/institutional',
-        icon: <InstitutionalIcon />,
+        icon: <Landmark size={18} strokeWidth={1.75} />,
         description: 'FII/DII cash & F&O participant activity',
+        category: 'Flow & Positioning',
         isActive: (p) => p.startsWith('/institutional'),
       },
       {
         label: 'All in 1',
         to: '/all-in-1',
-        icon: <AllInOneIcon />,
+        icon: <LayoutGrid size={18} strokeWidth={1.75} />,
         description: '20-factor options intelligence dashboard',
+        category: 'Intelligence',
         isActive: (p) => p.startsWith('/all-in-1'),
       },
       {
         label: 'Copilot',
         to: '/copilot',
-        icon: <CopilotIcon />,
+        icon: <Bot size={18} strokeWidth={1.75} />,
         description: 'Ask the AI market-intelligence assistant',
+        category: 'Intelligence',
         isActive: (p) => p.startsWith('/copilot'),
       },
     ],
@@ -387,17 +462,7 @@ const linkClass = (active: boolean) =>
       : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800',
   )
 
-// ── Icon colour rings for group items ─────────────────────────────
-const ICON_COLORS = [
-  'bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-400',
-  'bg-sky-100 text-sky-600 dark:bg-sky-900/40 dark:text-sky-400',
-  'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400',
-  'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400',
-  'bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-400',
-  'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/40 dark:text-cyan-400',
-]
-
-// ── Smart Insights group dropdown ─────────────────────────────────
+// ── Smart Insights mega-dropdown (mirrors the Options Lab layout) ──
 function SmartInsightsDropdown({
   group,
   pathname,
@@ -411,10 +476,16 @@ function SmartInsightsDropdown({
 }) {
   const active = group.isActive(pathname, search)
 
+  // Group items into ordered columns by their `category`.
+  const categories: string[] = []
+  for (const it of group.items) if (!categories.includes(it.category)) categories.push(it.category)
+  // Each real category + a trailing "Coming Soon" column.
+  const cols = categories.length + 1
+
   return (
     <Dropdown
-      align="left"
-      menuClassName="min-w-[320px] p-0 overflow-hidden"
+      align="center"
+      menuClassName="p-0 overflow-hidden"
       trigger={({ open, toggle }) => (
         <button
           type="button"
@@ -427,59 +498,75 @@ function SmartInsightsDropdown({
       )}
     >
       {(close) => (
-        <div>
+        <div style={{ width: cols * 224 }}>
           {/* Header */}
-          <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-700">
-            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">
-              Smart Insights
+          <div className="border-b border-slate-100 px-5 py-3">
+            <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+              {group.label}
             </p>
-            <p className="mt-0.5 text-[11px] text-slate-400">
-              Analytics & intelligence tools
+            <p className="mt-0.5 text-[11px] font-medium text-slate-600">
+              {group.subtitle}
             </p>
           </div>
 
-          {/* Items */}
-          <div className="p-2">
-            {group.items.map((item, i) => {
-              const itemActive = item.isActive(pathname)
-              return (
-                <Link
-                  key={item.label}
-                  to={item.to}
-                  onClick={() => { close(); onNavigate() }}
-                  className={cn(
-                    'flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors',
-                    itemActive
-                      ? 'bg-primary-50 dark:bg-primary-900/20'
-                      : 'hover:bg-slate-50 dark:hover:bg-slate-800/60',
-                  )}
-                >
-                  {/* Icon ring */}
-                  <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl', ICON_COLORS[i % ICON_COLORS.length])}>
-                    {item.icon}
-                  </span>
-                  {/* Text */}
-                  <span className="flex flex-col">
-                    <span
-                      className={cn(
-                        'text-sm font-semibold',
-                        itemActive ? 'text-primary-700 dark:text-primary-300' : 'text-slate-800 dark:text-slate-200',
-                      )}
-                    >
-                      {item.label}
-                    </span>
-                    <span className="text-[11px] leading-snug text-slate-400">
-                      {item.description}
-                    </span>
-                  </span>
+          {/* Column grid */}
+          <div className={cn('grid divide-x divide-slate-100', MEGA_COLS[cols] ?? 'grid-cols-3')}>
+            {categories.map((cat) => (
+              <div key={cat} className="p-3">
+                <p className="mb-2 px-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  {cat}
+                </p>
+                <ul className="space-y-0.5">
+                  {group.items
+                    .filter((it) => it.category === cat)
+                    .map((item) => {
+                      const itemActive = item.isActive(pathname)
+                      return (
+                        <li key={item.label}>
+                          <Link
+                            to={item.to}
+                            onClick={() => { close(); onNavigate() }}
+                            className={cn(
+                              'flex items-start gap-2.5 rounded-lg px-2 py-2 transition-colors',
+                              itemActive
+                                ? 'bg-primary-50 dark:bg-primary-900/20'
+                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/60',
+                            )}
+                          >
+                            <span className={cn('mt-0.5 shrink-0', itemActive ? 'text-primary-600 dark:text-primary-300' : 'text-slate-400')}>
+                              {item.icon}
+                            </span>
+                            <span className="flex min-w-0 flex-col">
+                              <span className={cn('text-sm font-semibold leading-snug', itemActive ? 'text-primary-700 dark:text-primary-300' : 'text-slate-800')}>
+                                {item.label}
+                              </span>
+                              <span className="text-[11px] leading-snug text-slate-400">
+                                {item.description}
+                              </span>
+                            </span>
+                          </Link>
+                        </li>
+                      )
+                    })}
+                </ul>
+              </div>
+            ))}
 
-                  {/* Active dot */}
-                  {itemActive && (
-                    <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-primary-600" />
-                  )}
-                </Link>
-              )
-            })}
+            {/* Coming Soon column */}
+            <div className="p-3">
+              <p className="mb-2 px-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                Coming Soon
+              </p>
+              <div className="flex items-start gap-2.5 rounded-lg px-2 py-2 opacity-60">
+                <span className="mt-0.5 shrink-0 text-slate-400">
+                  <Construction size={18} strokeWidth={1.75} />
+                </span>
+                <span className="flex min-w-0 flex-col">
+                  <span className="text-sm font-semibold leading-snug text-slate-500">Historical Chart</span>
+                  <span className="text-[11px] leading-snug text-slate-400">In development — coming soon</span>
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -539,7 +626,7 @@ export function Navbar() {
   const initial = (user?.display_name || user?.email || 'U').charAt(0).toUpperCase()
   const shownEntries = NAV_ENTRIES.slice(0, visible)
   const overflowEntries = NAV_ENTRIES.slice(visible)
-  const overflowActive = overflowEntries.some((e) => e.isActive(location.pathname, location.search))
+  const overflowActive = overflowEntries.some((e) => e.kind !== 'soon' && e.isActive(location.pathname, location.search))
 
   async function handleLogout() {
     setLoggingOut(true)
@@ -561,10 +648,10 @@ export function Navbar() {
         {/* Brand */}
         <Link to="/dashboard" className="flex shrink-0 items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-600 text-white">
-            ⚡
+            <Zap size={17} fill="currentColor" />
           </span>
           <span className="hidden text-[15px] font-bold tracking-tight text-slate-900 sm:inline dark:text-white">
-            Alphalytic AI
+            Strikfin
           </span>
         </Link>
 
@@ -573,7 +660,7 @@ export function Navbar() {
           {shownEntries.map((entry) => {
             if (entry.kind === 'mega') {
               return (
-                <OptionsLabDropdown
+                <MegaDropdown
                   key={entry.label}
                   entry={entry}
                   pathname={location.pathname}
@@ -591,6 +678,9 @@ export function Navbar() {
                   onNavigate={() => {}}
                 />
               )
+            }
+            if (entry.kind === 'soon') {
+              return <SoonTab key={entry.label} label={entry.label} hasMenu={entry.hasMenu} />
             }
             return (
               <Link
@@ -623,21 +713,25 @@ export function Navbar() {
                     return (
                       <div key={entry.label}>
                         <div className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                          Options Lab
+                          {entry.label}
                         </div>
                         {entry.categories.flatMap((cat) =>
-                          cat.items.map((item) => (
+                          cat.items.map((item) => {
+                            const Icon = item.icon
+                            return (
                             <Link
                               key={item.slug}
-                              to={`/options-lab?tool=${item.slug}`}
+                              to={`${entry.basePath}?tool=${item.slug}`}
                               onClick={close}
                               className={cn(
                                 menuItemClass,
-                                location.pathname === '/options-lab' &&
+                                'flex items-center gap-2',
+                                location.pathname === entry.basePath &&
                                   location.search.includes(`tool=${item.slug}`) &&
                                   'bg-primary-50 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300',
                               )}
                             >
+                              <Icon className="h-4 w-4 shrink-0 text-slate-400" strokeWidth={1.75} />
                               {item.label}
                               {item.isNew && (
                                 <span className="ml-1.5 rounded bg-emerald-500 px-1 py-0.5 text-[9px] font-bold uppercase text-white">
@@ -645,7 +739,8 @@ export function Navbar() {
                                 </span>
                               )}
                             </Link>
-                          ))
+                            )
+                          })
                         )}
                       </div>
                     )
@@ -670,6 +765,20 @@ export function Navbar() {
                             {item.label}
                           </Link>
                         ))}
+                      </div>
+                    )
+                  }
+                  if (entry.kind === 'soon') {
+                    return (
+                      <div
+                        key={entry.label}
+                        className={cn(menuItemClass, 'flex cursor-not-allowed items-center justify-between text-slate-400')}
+                        title="Under development"
+                      >
+                        {entry.label}
+                        <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-600 dark:bg-amber-900/40 dark:text-amber-400">
+                          Soon
+                        </span>
                       </div>
                     )
                   }
@@ -701,7 +810,7 @@ export function Navbar() {
             {NAV_ENTRIES.map((entry) => (
               <span key={entry.label} className={linkClass(false)}>
                 {entry.label}
-                {(entry.kind === 'group' || entry.kind === 'mega') && <> ▾</>}
+                {(entry.kind === 'group' || entry.kind === 'mega' || (entry.kind === 'soon' && entry.hasMenu)) && <> ▾</>}
               </span>
             ))}
           </div>
@@ -729,7 +838,7 @@ export function Navbar() {
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-600 text-sm font-semibold text-white">
                   {initial}
                 </span>
-                <span className="hidden text-sm font-semibold text-slate-800 sm:inline dark:text-slate-200">
+                <span className="hidden text-sm font-semibold text-slate-800 sm:inline">
                   {user?.display_name ?? 'User'}
                 </span>
                 <span className="text-slate-400">
@@ -740,8 +849,8 @@ export function Navbar() {
           >
             {(close) => (
               <>
-                <div className="border-b border-slate-100 px-3 py-2 dark:border-slate-700">
-                  <div className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                <div className="border-b border-slate-100 px-3 py-2">
+                  <div className="text-sm font-semibold text-slate-800">
                     {user?.display_name ?? 'User'}
                   </div>
                   {user?.email && (

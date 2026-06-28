@@ -1,7 +1,7 @@
 """
 db/models.py
 ------------
-All SQLAlchemy ORM table definitions for Alphalytic AI.
+All SQLAlchemy ORM table definitions for Strikfin.
 Single user application — no roles/permissions tables needed.
 All market tables are append-only (no in-place updates).
 """

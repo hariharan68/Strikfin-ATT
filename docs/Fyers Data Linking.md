@@ -2,7 +2,7 @@
 
 ## Overview
 
-Alphalytic AI uses the **Fyers API v3** to fetch live market data for NIFTY 50, SENSEX, India VIX, and option chains. The backend authenticates via OAuth2 and stores the access token in the `.env` file.
+Strikfin uses the **Fyers API v3** to fetch live market data for NIFTY 50, SENSEX, India VIX, and option chains. The backend authenticates via OAuth2 and stores the access token in the `.env` file.
 
 ---
 
@@ -86,7 +86,7 @@ Expected response when authenticated:
 
 ### Step 6 — Refresh the Dashboard
 
-Reload the Alphalytic AI dashboard. Live data (NIFTY 50, SENSEX, VIX, option chain) will resume immediately.
+Reload the Strikfin dashboard. Live data (NIFTY 50, SENSEX, VIX, option chain) will resume immediately.
 
 ---
 

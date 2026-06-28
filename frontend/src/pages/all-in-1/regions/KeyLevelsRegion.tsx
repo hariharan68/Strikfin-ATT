@@ -1,3 +1,4 @@
+import { BrickWall } from 'lucide-react'
 import type { KeyLevels } from '../allInOne.types'
 import { formatInt, cn } from '../../../lib/format'
 
@@ -18,7 +19,7 @@ export function KeyLevelsRegion({ levels }: { levels: KeyLevels }) {
   return (
     <div className="rounded-xl bg-slate-50 p-4">
       <div className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
-        <span aria-hidden>🧱</span>
+        <BrickWall size={15} aria-hidden />
         Key levels to watch
       </div>
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">

@@ -1,7 +1,7 @@
 """
 domain/schemas.py
 -----------------
-All Pydantic request/response schemas for Alphalytic AI.
+All Pydantic request/response schemas for Strikfin.
 No DB access here — pure data shapes only.
 """
 from datetime import datetime

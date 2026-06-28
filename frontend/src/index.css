@@ -75,6 +75,35 @@ html.dark body {
 }
 
 /* ───────────────────────────────────────────────────────────
+   TERMINAL — the landing-page look: pure-black surfaces with a
+   terracotta accent. It's a dark-family variant, so it ships with
+   `.dark` too (inheriting the whole slate remap above). This block
+   only overrides what differs: deeper black surfaces and the
+   primary scale (blue → terracotta). Because it appears AFTER
+   html.dark with equal specificity, these vars win.
+   ─────────────────────────────────────────────────────────── */
+html.theme-terminal {
+  color-scheme: dark;
+
+  /* Deeper, near-black app surfaces */
+  --color-surface: #0a0c10;
+  --app-card: #14171c;
+  --app-card-2: #1b2027;
+
+  /* Primary → terracotta (matches the landing CTA + hero gradient) */
+  --color-primary-50: #fef2ec;
+  --color-primary-100: #fde0d2;
+  --color-primary-200: #fabf9f;
+  --color-primary-300: #f59b6b;
+  --color-primary-400: #f0763f;
+  --color-primary-500: #e2562a;
+  --color-primary-600: #d9532a;
+  --color-primary-700: #b8431f;
+  --color-primary-800: #93371b;
+  --color-primary-900: #792f18;
+}
+
+/* ───────────────────────────────────────────────────────────
    WARM CREAM — terracotta & cream light theme.
    Same mechanism as dark mode: we override the CSS variables that
    the slate/primary utilities resolve to, so `bg-primary-600`,
@@ -151,6 +180,40 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 ::-webkit-scrollbar-thumb:hover {
   background: #000710;
   background-clip: content-box;
+}
+
+/* OI time-range slider — themed draggable handle (Open Interest tool). */
+.oi-range {
+  outline: none;
+}
+.oi-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  width: 16px;
+  margin-top: -5px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid var(--color-primary-600);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+  cursor: pointer;
+}
+.oi-range::-moz-range-thumb {
+  height: 16px;
+  width: 16px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid var(--color-primary-600);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+  cursor: pointer;
+}
+.oi-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 9999px;
+}
+.oi-range::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
 }
 
 /* Reusable animations */

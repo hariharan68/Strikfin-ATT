@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
+import { Zap } from 'lucide-react'
 import { Navbar } from './components/Navbar'
 import { FloatingCopilot } from './components/FloatingCopilot'
 import { ToastProvider } from './components/ui/Toast'
@@ -9,14 +10,13 @@ import { getMe, refresh } from './api/endpoints'
 import { LoginPage } from './pages/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { OptionsPage } from './pages/OptionsPage'
-import { AdvanceOIPage } from './pages/AdvanceOIPage'
-
-import { SignalsPage } from './pages/SignalsPage'
 import { SmartMoneyPage } from './pages/SmartMoneyPage'
 import { InstitutionalPage } from './pages/InstitutionalPage'
 import { AllInOnePage } from './pages/all-in-1/AllInOnePage'
 import { OptionChainPage } from './pages/OptionChainPage'
 import { OptionsLabPage } from './pages/OptionsLabPage'
+import { FutureLabPage } from './pages/FutureLabPage'
+import { AnalysePage } from './pages/AnalysePage'
 import { CopilotPage } from './pages/CopilotPage'
 import { AdvancedDashboardPage } from './pages/AdvancedDashboardPage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -26,9 +26,9 @@ function Splash() {
     <div className="flex min-h-screen items-center justify-center bg-surface">
       <div className="flex items-center gap-3 text-slate-500">
         <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-600 text-white">
-          ⚡
+          <Zap size={18} fill="currentColor" />
         </span>
-        <span className="text-sm font-medium">Loading Alphalytic AI…</span>
+        <span className="text-sm font-medium">Loading Strikfin…</span>
       </div>
     </div>
   )
@@ -114,14 +114,13 @@ export default function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/advanced-dashboard" element={<AdvancedDashboardPage />} />
             <Route path="/options" element={<OptionsPage />} />
-            <Route path="/advance-oi" element={<AdvanceOIPage />} />
-
-            <Route path="/signals" element={<SignalsPage />} />
             <Route path="/smart-money" element={<SmartMoneyPage />} />
             <Route path="/institutional" element={<InstitutionalPage />} />
             <Route path="/all-in-1" element={<AllInOnePage />} />
             <Route path="/option-chain" element={<OptionChainPage />} />
             <Route path="/options-lab" element={<OptionsLabPage />} />
+            <Route path="/future-lab" element={<FutureLabPage />} />
+            <Route path="/analyse" element={<AnalysePage />} />
             <Route path="/copilot" element={<CopilotPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>

@@ -1,6 +1,6 @@
-# Alphalytic AI
+# Strikfin
 
-Alphalytic AI is an institutional-grade market intelligence terminal for India's benchmark indices — NIFTY 50 and SENSEX — that fuses options open-interest analytics, regime classification, smart-money signal detection, FII/DII flow interpretation, news sentiment scoring, and an AI-grounded copilot into a single, real-time dashboard. All outputs carry a mandatory SEBI-aligned disclosure label; the platform is explicitly positioned as market intelligence, not investment advice.
+Strikfin is an institutional-grade market intelligence terminal for India's benchmark indices — NIFTY 50 and SENSEX — that fuses options open-interest analytics, regime classification, smart-money signal detection, FII/DII flow interpretation, news sentiment scoring, and an AI-grounded copilot into a single, real-time dashboard. All outputs carry a mandatory SEBI-aligned disclosure label; the platform is explicitly positioned as market intelligence, not investment advice.
 
 ---
 
@@ -37,7 +37,7 @@ Alphalytic AI is an institutional-grade market intelligence terminal for India's
 
 ```bash
 git clone <repo-url>
-cd "Alphalytic AI (ATT)/backend"
+cd "Strikfin (ATT)/backend"
 python -m venv venv
 source venv/Scripts/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
@@ -54,7 +54,7 @@ Minimum required `.env`:
 ```ini
 SECRET_KEY=your-random-secret-here
 DB_SERVER=YOURMACHINE\SQLEXPRESS
-DB_NAME=AlphalyticDB
+DB_NAME=StrikfinDB
 MARKET_DATA_VENDOR=mock
 LLM_PROVIDER=none
 ```
@@ -88,7 +88,7 @@ Frontend: <http://localhost:5173>
 ## Folder Structure
 
 ```
-Alphalytic AI (ATT)/
+Strikfin (ATT)/
 ├── backend/
 │   ├── app/
 │   │   ├── api/v1/routers/     # FastAPI endpoint handlers

@@ -1,6 +1,6 @@
 # Database Schema
 
-Database: **AlphalyticDB** (Microsoft SQL Server)
+Database: **StrikfinDB** (Microsoft SQL Server)
 Connection: Windows Authentication (`Trusted_Connection=yes`)
 ORM: SQLAlchemy 2.0 async
 

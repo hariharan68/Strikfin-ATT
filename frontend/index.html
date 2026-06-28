@@ -4,15 +4,18 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Alphalytic AI — Trading Intelligence Terminal</title>
+    <title>Strikfin — Trading Intelligence Terminal</title>
     <script>
       // Apply the saved theme before first paint to avoid a flash.
       (function () {
         try {
-          var t = localStorage.getItem('alphalytic-theme');
+          var t = localStorage.getItem('strikfin-theme');
           if (t === 'light') t = 'classic';
+          if (t === 'evil-black') t = 'dark';
+          if (!t) t = 'terminal'; // app-wide default for new visitors
           var el = document.documentElement;
-          el.classList.toggle('dark', t === 'dark');
+          el.classList.toggle('dark', t === 'dark' || t === 'terminal');
+          el.classList.toggle('theme-terminal', t === 'terminal');
           el.classList.toggle('theme-warm', t === 'warm');
         } catch (e) {}
       })();

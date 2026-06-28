@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { Brain, Lightbulb } from 'lucide-react'
 import type { FormEvent } from 'react'
 import { askCopilot } from '../api/endpoints'
 import type { CopilotSource } from '../api/endpoints'
@@ -83,16 +84,16 @@ export function CopilotPage() {
       <div className="flex-1 space-y-4 overflow-y-auto rounded-xl border border-slate-200 bg-white p-5">
         {messages.length === 0 ? (
           <div className="mx-auto flex h-full w-full max-w-lg flex-col items-center justify-center text-center">
-            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-100 text-3xl text-primary-600">
-              🧠
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-100 text-primary-600">
+              <Brain size={28} />
             </span>
             <p className="mt-4 text-base font-semibold text-slate-800">Ask the Copilot anything</p>
             <p className="mt-1 text-xs text-slate-400">
               It answers from live market data for the selected index.
             </p>
             <div className="mt-6 w-full">
-              <p className="mb-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                💡 Try asking:
+              <p className="mb-2 flex items-center gap-1.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <Lightbulb size={13} /> Try asking:
               </p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {SUGGESTED.map((q) => (
@@ -171,7 +172,7 @@ export function CopilotPage() {
       <div className="mt-3">
         <Disclosure>
           Copilot answers are AI-generated from automated market data and may be inaccurate or
-          delayed. This is not investment advice. Alphalytic AI is not a SEBI-registered investment
+          delayed. This is not investment advice. Strikfin is not a SEBI-registered investment
           adviser.
         </Disclosure>
       </div>

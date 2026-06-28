@@ -1,3 +1,4 @@
+import { Compass } from 'lucide-react'
 import { getInstitutional } from '../api/endpoints'
 import type { InstitutionalData } from '../api/endpoints'
 import { useFetch } from '../lib/useFetch'
@@ -124,7 +125,7 @@ export function InstitutionalPage() {
       </Panel>
 
       <Panel className="mt-6">
-        <PanelHeader title="Interpretation" icon="🧭" />
+        <PanelHeader title="Interpretation" icon={<Compass size={16} />} />
         <div className="p-5">
           {loading ? (
             <SkeletonLines lines={3} />

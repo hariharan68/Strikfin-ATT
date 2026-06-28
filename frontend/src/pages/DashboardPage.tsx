@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import type { LucideIcon } from 'lucide-react'
+import { BarChart3, Brain, Banknote, MessageCircle, Target, Landmark } from 'lucide-react'
 import { getDashboard } from '../api/endpoints'
 import type { DashboardData, IndexSnapshot } from '../api/endpoints'
 import { useFetch } from '../lib/useFetch'
@@ -29,11 +31,10 @@ import { Markdown } from '../components/Markdown'
 import { useInstrument } from '../lib/useInstrument'
 import { INSTRUMENTS } from '../api/endpoints'
 
-const QUICK_ACTIONS = [
-  { label: 'Options Chain', to: '/options', icon: '📊' },
-  { label: 'AI Signals', to: '/signals', icon: '🧠' },
-  { label: 'Smart Money', to: '/smart-money', icon: '💸' },
-  { label: 'Ask Copilot', to: '/copilot', icon: '💬' },
+const QUICK_ACTIONS: { label: string; to: string; Icon: LucideIcon }[] = [
+  { label: 'Options Chain', to: '/options', Icon: BarChart3 },
+  { label: 'Smart Money', to: '/smart-money', Icon: Banknote },
+  { label: 'Ask Copilot', to: '/copilot', Icon: MessageCircle },
 ]
 
 function priceOf(snap?: IndexSnapshot): number | undefined {
@@ -154,7 +155,7 @@ export function DashboardPage() {
         {/* Left column */}
         <div className="space-y-6 lg:col-span-2">
           <Panel>
-            <PanelHeader title="Option Chain" subtitle="Top strikes around spot" icon="📊" />
+            <PanelHeader title="Option Chain" subtitle="Top strikes around spot" icon={<BarChart3 size={16} />} />
             {loading ? (
               <div className="space-y-2 p-5">
                 {Array.from({ length: 6 }).map((_, i) => (
@@ -177,7 +178,7 @@ export function DashboardPage() {
           <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
             <div className="border-l-4 border-primary-600 p-5">
               <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                🧠 AI Market Summary
+                <Brain size={16} className="text-primary-600" /> AI Market Summary
               </h3>
               {loading ? (
                 <div className="mt-3 space-y-2">
@@ -198,7 +199,7 @@ export function DashboardPage() {
         <div className="space-y-6">
           {/* Options metrics */}
           <Panel>
-            <PanelHeader title="Options Metrics" icon="🎯" />
+            <PanelHeader title="Options Metrics" icon={<Target size={16} />} />
             <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-b-xl bg-slate-100">
               <Stat label="PCR (OI)" value={formatNumber(options?.pcr_oi)} loading={loading} />
               <Stat label="Max Pain" value={formatNumber(options?.max_pain, 0)} loading={loading} />
@@ -215,7 +216,7 @@ export function DashboardPage() {
 
           {/* FII / DII */}
           <Panel>
-            <PanelHeader title="FII / DII Flow" icon="🏦" />
+            <PanelHeader title="FII / DII Flow" icon={<Landmark size={16} />} />
             <div className="grid grid-cols-2 gap-px overflow-hidden rounded-b-xl bg-slate-100">
               <Stat
                 label="FII Cash"
@@ -242,7 +243,7 @@ export function DashboardPage() {
                   to={a.to}
                   className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700"
                 >
-                  <span>{a.icon}</span>
+                  <a.Icon size={16} />
                   {a.label}
                 </Link>
               ))}

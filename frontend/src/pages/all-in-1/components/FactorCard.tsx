@@ -40,8 +40,8 @@ export function FactorCard({ module, reading }: FactorCardProps) {
       )}
     >
       <div className="flex items-center justify-between">
-        <span className="text-base leading-none" aria-hidden>
-          {module.icon}
+        <span className="text-slate-500" aria-hidden>
+          <module.icon size={18} strokeWidth={2} />
         </span>
         {reading.blocked ? (
           <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-slate-500">

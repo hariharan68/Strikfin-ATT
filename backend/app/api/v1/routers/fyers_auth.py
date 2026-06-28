@@ -269,7 +269,7 @@ def _success_page() -> str:
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Alphalytic AI — Fyers Connected</title>
+        <title>Strikfin — Fyers Connected</title>
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body {
@@ -330,7 +330,7 @@ def _success_page() -> str:
     </head>
     <body>
         <div class="card">
-            <div class="app">ALPHALYTIC AI</div>
+            <div class="app">STRIKFIN</div>
             <div class="icon">⚡</div>
             <div class="title">Fyers Connected!</div>
             <div class="sub">
@@ -355,7 +355,7 @@ def _error_page(error: str) -> str:
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Alphalytic AI — Connection Failed</title>
+        <title>Strikfin — Connection Failed</title>
         <style>
             * {{ margin: 0; padding: 0; box-sizing: border-box; }}
             body {{

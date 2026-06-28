@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { AlertTriangle, Info } from 'lucide-react'
 import { cn } from '../lib/format'
 
 interface DisclosureProps {
@@ -11,7 +12,7 @@ interface DisclosureProps {
 }
 
 const DEFAULT_TEXT =
-  'For educational and informational purposes only. Alphalytic AI is not a SEBI-registered investment adviser. ' +
+  'For educational and informational purposes only. Strikfin is not a SEBI-registered investment adviser. ' +
   'Nothing here is investment advice, a recommendation, or a solicitation to buy or sell any security. ' +
   'Levels and signals are illustrative and derived from automated models that may be delayed or inaccurate. ' +
   'Markets carry risk — consult a registered financial adviser before trading.'
@@ -35,7 +36,7 @@ export function Disclosure({ variant = 'bar', tone = 'info', className, children
       )}
     >
       <span aria-hidden className={cn('mt-px shrink-0', alert ? 'text-amber-500' : 'text-slate-400')}>
-        {alert ? '⚠' : 'ℹ'}
+        {alert ? <AlertTriangle size={15} /> : <Info size={15} />}
       </span>
       <p className="leading-relaxed">{children ?? DEFAULT_TEXT}</p>
     </div>

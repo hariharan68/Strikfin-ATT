@@ -25,7 +25,7 @@
 │  DATABASE  (Microsoft SQL Server)                           │
 │  Windows Authentication — no username/password in code      │
 │  Named instance, e.g. MACHINE\SQLEXPRESS                    │
-│  Database: AlphalyticDB                                     │
+│  Database: StrikfinDB                                     │
 └─────────────────────────────────────────────────────────────┘
 ```
 

@@ -1,3 +1,4 @@
+import type { LucideIcon } from 'lucide-react'
 import type {
   BiasValue,
   IndexSnapshot,
@@ -72,8 +73,8 @@ export interface FactorModule {
   index: number
   id: string
   title: string
-  /** Emoji or short glyph shown on the tile. */
-  icon: string
+  /** Lucide icon component shown on the tile. */
+  icon: LucideIcon
   /**
    * Live feeds this factor reads. The card's status is derived from these:
    * `loading` while any is first-loading, `error` if any failed with no data,

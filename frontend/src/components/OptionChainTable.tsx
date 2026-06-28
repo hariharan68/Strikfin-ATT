@@ -94,7 +94,7 @@ export function OptionChainTable({ rows, maxRows, atmStrike }: OptionChainTableP
               key={`${row.strike}-${row.type}-${i}`}
               className={cn(
                 'border-b border-slate-50 last:border-0 hover:bg-slate-50/60',
-                isAtm && 'bg-primary-50/60 hover:bg-primary-50',
+                isAtm && 'bg-primary-50/60 hover:bg-primary-50 dark:bg-primary-400/10 dark:hover:bg-primary-400/20',
               )}
             >
               <td className="px-4 py-2.5 font-semibold text-slate-800">

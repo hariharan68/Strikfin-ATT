@@ -1,7 +1,7 @@
 /*
 ================================================================================
-  ALPHALYTIC AI — Microsoft SQL Server Database Creation Script
-  Database : AlphalyticDB
+  STRIKFIN — Microsoft SQL Server Database Creation Script
+  Database : StrikfinDB
   Generated: 2026-06-20
   Engine   : MSSQL 2019+ (compatible with SQL Server Express)
   Auth     : Windows Authentication (Trusted_Connection)
@@ -45,17 +45,17 @@
 USE master;
 GO
 
-IF DB_ID('AlphalyticDB') IS NULL
+IF DB_ID('StrikfinDB') IS NULL
 BEGIN
-    CREATE DATABASE AlphalyticDB
+    CREATE DATABASE StrikfinDB
     COLLATE SQL_Latin1_General_CP1_CI_AS;
-    PRINT 'AlphalyticDB created.';
+    PRINT 'StrikfinDB created.';
 END
 ELSE
-    PRINT 'AlphalyticDB already exists — skipping CREATE DATABASE.';
+    PRINT 'StrikfinDB already exists — skipping CREATE DATABASE.';
 GO
 
-USE AlphalyticDB;
+USE StrikfinDB;
 GO
 
 -- ============================================================================
@@ -733,7 +733,7 @@ GO
 -- ============================================================================
 PRINT '';
 PRINT '════════════════════════════════════════════════════════';
-PRINT '  AlphalyticDB schema creation complete.';
+PRINT '  StrikfinDB schema creation complete.';
 PRINT '  Run EXEC dbo.usp_cleanup_expired_tokens to purge tokens.';
 PRINT '  Run EXEC dbo.usp_purge_old_snapshots to purge old data.';
 PRINT '════════════════════════════════════════════════════════';
@@ -1013,7 +1013,7 @@ OPTIMIZATION SUGGESTIONS
 
 4. Consider READ_COMMITTED_SNAPSHOT isolation (RCSI) at DB level to
    eliminate reader/writer lock contention on append-only tables:
-   ALTER DATABASE AlphalyticDB SET READ_COMMITTED_SNAPSHOT ON;
+   ALTER DATABASE StrikfinDB SET READ_COMMITTED_SNAPSHOT ON;
 
 5. Schedule usp_cleanup_expired_tokens daily via SQL Server Agent.
    Schedule usp_purge_old_snapshots weekly (retain 30 days default).

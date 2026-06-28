@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Zap } from 'lucide-react'
 import {
   clearFyersToken,
   getFyersLogin,
@@ -140,7 +141,7 @@ export function SettingsPage() {
         <h1 className="text-xl font-bold tracking-tight text-slate-900">Settings</h1>
         <p className="mt-1 text-sm text-slate-500">
           Personalise the look and feel of your workspace, and manage broker
-          connections for Alphalytic AI.
+          connections for Strikfin.
         </p>
       </header>
 
@@ -150,8 +151,8 @@ export function SettingsPage() {
       {/* Fyers broker card */}
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex items-start gap-4">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-600 text-lg text-white">
-            ⚡
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-600 text-white">
+            <Zap size={20} fill="currentColor" />
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -238,7 +239,7 @@ const THEME_OPTIONS: ThemeOption[] = [
   {
     id: 'classic',
     name: 'Classic Blue',
-    description: 'Clean blue & white — the default look',
+    description: 'Clean blue & white — light & crisp',
     swatches: ['#f0f4f8', '#ffffff', '#2350e8'],
   },
   {
@@ -252,6 +253,12 @@ const THEME_OPTIONS: ThemeOption[] = [
     name: 'Dark Mode',
     description: 'Dark slate — low-light environments',
     swatches: ['#0a0e16', '#141b27', '#2350e8'],
+  },
+  {
+    id: 'terminal',
+    name: 'Classic Dark',
+    description: 'Pure black & terracotta — the default theme',
+    swatches: ['#0a0c10', '#14171c', '#e2562a'],
   },
 ]
 

@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     )
 
     # ── Application ───────────────────────────────────────────
-    APP_NAME: str = "Alphalytic AI"
+    APP_NAME: str = "Strikfin"
     APP_ENV: Literal["development", "production"] = "development"
     DEBUG: bool = False
 
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
 
     # ── Database (MSSQL — Windows Auth) ───────────────────────
     DB_SERVER: str = "SRIHARIHARAN\\SQLEXPRESS"
-    DB_NAME: str = "AlphalyticDB"
+    DB_NAME: str = "StrikfinDB"
     DB_DRIVER: str = "ODBC Driver 17 for SQL Server"
 
     @property

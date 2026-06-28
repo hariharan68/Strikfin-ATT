@@ -31,7 +31,7 @@ For a local named instance (`MACHINE\SQLEXPRESS`), the connection uses the named
 Open SQL Server Management Studio (SSMS) or `sqlcmd`:
 
 ```sql
-CREATE DATABASE AlphalyticDB;
+CREATE DATABASE StrikfinDB;
 ```
 
 ### Install ODBC Driver 17
@@ -52,7 +52,7 @@ print(pyodbc.drivers())
 ## Step 2: Backend Setup
 
 ```bash
-cd "Alphalytic AI (ATT)/backend"
+cd "Strikfin (ATT)/backend"
 
 # Create virtual environment
 python -m venv venv
@@ -72,7 +72,7 @@ Create a `.env` file in the `backend/` directory:
 
 ```ini
 # ── Application ───────────────────────────────────────────────
-APP_NAME=Alphalytic AI
+APP_NAME=Strikfin
 APP_ENV=development
 DEBUG=true
 
@@ -84,7 +84,7 @@ REFRESH_TOKEN_EXPIRE_DAYS=30
 
 # ── Database (REQUIRED) ───────────────────────────────────────
 DB_SERVER=YOURMACHINE\SQLEXPRESS
-DB_NAME=AlphalyticDB
+DB_NAME=StrikfinDB
 DB_DRIVER=ODBC Driver 17 for SQL Server
 
 # ── Market Data ───────────────────────────────────────────────
@@ -120,13 +120,13 @@ print(secrets.token_hex(32))
 The backend builds the connection string from `DB_SERVER`, `DB_NAME`, and `DB_DRIVER`:
 
 ```
-mssql+aioodbc://@MACHINE\SQLEXPRESS/AlphalyticDB
+mssql+aioodbc://@MACHINE\SQLEXPRESS/StrikfinDB
   ?driver=ODBC+Driver+17+for+SQL+Server
   &Trusted_Connection=yes
   &TrustServerCertificate=yes
 ```
 
-There is **no username or password** in this string — Windows Authentication uses the OS user running the process. Ensure the Windows user running `uvicorn` has `db_owner` or at minimum `db_datareader + db_datawriter` permissions on `AlphalyticDB`.
+There is **no username or password** in this string — Windows Authentication uses the OS user running the process. Ensure the Windows user running `uvicorn` has `db_owner` or at minimum `db_datareader + db_datawriter` permissions on `StrikfinDB`.
 
 ---
 

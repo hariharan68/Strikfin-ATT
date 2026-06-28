@@ -1,7 +1,7 @@
 """
 app/main.py
 -----------
-Alphalytic AI — FastAPI application entry point.
+Strikfin — FastAPI application entry point.
 Wires together all routers, middleware, lifespan, and error handlers.
 
 Run with:
@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
     Shutdown: dispose DB engine cleanly.
     """
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    logger.info("  Alphalytic AI — starting up")
+    logger.info("  Strikfin — starting up")
     logger.info(f"  ENV    : {settings.APP_ENV}")
     logger.info(f"  VENDOR : {settings.MARKET_DATA_VENDOR}")
     logger.info(f"  LLM    : {settings.LLM_PROVIDER}")
@@ -80,14 +80,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"  Background jobs not started: {e}")
 
-    logger.info("✓ Alphalytic AI is ready")
+    logger.info("✓ Strikfin is ready")
     logger.info("  Docs : http://localhost:8000/api/docs")
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
     yield
 
     # Shutdown
-    logger.info("Shutting down Alphalytic AI...")
+    logger.info("Shutting down Strikfin...")
     try:
         from app.ingestion.scheduler import stop_background_jobs
         await stop_background_jobs()
@@ -142,7 +142,7 @@ async def _seed_instruments() -> None:
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="Alphalytic AI",
+        title="Strikfin",
         description=(
             "Institutional-grade AI trading intelligence terminal "
             "for NIFTY 50 and SENSEX. "
@@ -213,7 +213,7 @@ def create_app() -> FastAPI:
     @app.get("/", tags=["health"])
     async def root():
         return {
-            "app":    "Alphalytic AI",
+            "app":    "Strikfin",
             "docs":   "/api/docs",
             "health": "/health",
         }

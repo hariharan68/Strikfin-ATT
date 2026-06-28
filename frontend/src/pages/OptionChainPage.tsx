@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { ClipboardList } from 'lucide-react'
 import {
   getFutures,
   getOptionsChain,
@@ -207,7 +208,7 @@ const STRIKE_PRESETS = [5, 10, 15, 20] as const
 
 export function OptionChainPage() {
   const [instrument, setInstrument] = useInstrument()
-  const [strikeCount, setStrikeCount] = useState<number | 'all'>(15)
+  const [strikeCount, setStrikeCount] = useState<number | 'all'>(5)
   const [expIdx, setExpIdx] = useState(0)
   const expiries = useMemo(() => upcomingExpiries(), [])
 
@@ -467,7 +468,7 @@ export function OptionChainPage() {
           </div>
         ) : tableRows.length === 0 ? (
           <div className="flex h-72 flex-col items-center justify-center gap-2 text-center">
-            <span className="text-4xl opacity-40">📋</span>
+            <ClipboardList size={40} className="text-slate-300" strokeWidth={1.5} />
             <p className="text-sm font-medium text-slate-600">No option chain data</p>
             <p className="max-w-xs text-xs text-slate-400">
               Connect a live data provider or wait for market hours.
@@ -529,7 +530,7 @@ export function OptionChainPage() {
                     className={cn(
                       'border-b border-slate-100 transition-colors last:border-0',
                       isAtm
-                        ? 'bg-amber-50/60 hover:bg-amber-50'
+                        ? 'bg-amber-50/60 hover:bg-amber-50 dark:bg-amber-400/10 dark:hover:bg-amber-400/20'
                         : 'hover:bg-slate-50/60',
                     )}
                   >

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { BarChart3 } from 'lucide-react'
 import { getOILabView, INSTRUMENTS } from '../../api/endpoints'
 import type { OILabView } from '../../api/endpoints'
 import type { InstrumentId } from '../../api/endpoints'
@@ -27,9 +28,18 @@ const STRIKE_FILTERS: { label: string; n: number | 'all' }[] = [
   { label: '20', n: 20 },
 ]
 
-const QUICK_RANGES = [
-  'Last 3 min', 'Last 5 min', 'Last 10 min', 'Last 15 min',
-  'Last 30 min', 'Last 1 hr', 'Last 2 hr', 'Last 3 hr', 'All',
+// Quick baseline windows — `minutes` back from the selected "now", or the full
+// session ('all'). Drives the open-baseline of the OI build-up.
+const QUICK_RANGES: { label: string; minutes: number | 'all' }[] = [
+  { label: 'Last 3 min', minutes: 3 },
+  { label: 'Last 5 min', minutes: 5 },
+  { label: 'Last 10 min', minutes: 10 },
+  { label: 'Last 15 min', minutes: 15 },
+  { label: 'Last 30 min', minutes: 30 },
+  { label: 'Last 1 hr', minutes: 60 },
+  { label: 'Last 2 hr', minutes: 120 },
+  { label: 'Last 3 hr', minutes: 180 },
+  { label: 'All', minutes: 'all' },
 ]
 
 // ── helpers ────────────────────────────────────────────────────────
@@ -72,7 +82,10 @@ export function OpenInterestTool() {
   const [mode, setMode] = useState<OIMode>('change_total')
   const [showLot, setShowLot] = useState(false)
   const [strikeFilter, setStrikeFilter] = useState<number | 'all'>(10)
-  const [quickRange, setQuickRange] = useState('All')
+  // Time-range slider: `nowIdx` null = follow the live/last snapshot. `openMode`
+  // is the baseline window (minutes back from now, or full session).
+  const [nowIdx, setNowIdx] = useState<number | null>(null)
+  const [openMode, setOpenMode] = useState<number | 'all'>('all')
   const [selectedExpiry, setSelectedExpiry] = useState(0)
 
   const { data, error, loading, refreshing, refetch } = useFetch<OILabView>(
@@ -82,7 +95,6 @@ export function OpenInterestTool() {
   )
 
   const expiries = useMemo(() => upcomingExpiries(new Date()), [])
-  const instLabel = INSTRUMENTS.find((x) => x.id === instrument)?.label ?? 'NIFTY 50'
   const instShort = INSTRUMENTS.find((x) => x.id === instrument)?.short ?? 'NIFTY'
 
   const cycleInstrument = (dir: 1 | -1) => {
@@ -91,22 +103,49 @@ export function OpenInterestTool() {
     setInstrument(ids[(idx + dir + ids.length) % ids.length] as InstrumentId)
   }
 
+  // ── time-range slider window ─────────────────────────────────────
+  const series = data?.series ?? []
+  const hasSeries = series.length >= 2
+  const lastIdx = series.length - 1
+  // "now" point: the dragged index, or the latest when following live.
+  const effNow = hasSeries ? Math.min(nowIdx ?? lastIdx, lastIdx) : 0
+  // "open" baseline: full session, or the snapshot ~`openMode` minutes before now.
+  const effOpen = useMemo(() => {
+    if (!hasSeries || openMode === 'all') return 0
+    const target = new Date(series[effNow].t).getTime() - openMode * 60_000
+    let idx = 0
+    for (let i = 0; i <= effNow; i++) {
+      if (new Date(series[i].t).getTime() <= target) idx = i
+    }
+    return idx
+  }, [series, effNow, openMode, hasSeries])
+
   // ── derive bars (+ strike filter) ────────────────────────────────
-  const allBars: OIBar[] = useMemo(
-    () =>
-      (data?.strikes ?? []).map((s) => ({
-        strike: s.strike,
-        callOpen: s.call_oi_open,
-        callNow: s.call_oi_now,
-        callChg: s.call_oi_chg,
-        callChgPct: s.call_oi_chg_pct,
-        putOpen: s.put_oi_open,
-        putNow: s.put_oi_now,
-        putChg: s.put_oi_chg,
-        putChgPct: s.put_oi_chg_pct,
-      })),
-    [data],
-  )
+  const allBars: OIBar[] = useMemo(() => {
+    const strikes = data?.strikes ?? []
+    if (hasSeries) {
+      const o = series[effOpen]
+      const nw = series[effNow]
+      return strikes.map((s, i) => {
+        const callOpen = o.call[i] ?? 0
+        const callNow = nw.call[i] ?? 0
+        const putOpen = o.put[i] ?? 0
+        const putNow = nw.put[i] ?? 0
+        return {
+          strike: s.strike,
+          callOpen, callNow, callChg: callNow - callOpen,
+          callChgPct: callOpen ? Math.round(((callNow - callOpen) / callOpen) * 10000) / 100 : 0,
+          putOpen, putNow, putChg: putNow - putOpen,
+          putChgPct: putOpen ? Math.round(((putNow - putOpen) / putOpen) * 10000) / 100 : 0,
+        }
+      })
+    }
+    return strikes.map((s) => ({
+      strike: s.strike,
+      callOpen: s.call_oi_open, callNow: s.call_oi_now, callChg: s.call_oi_chg, callChgPct: s.call_oi_chg_pct,
+      putOpen: s.put_oi_open, putNow: s.put_oi_now, putChg: s.put_oi_chg, putChgPct: s.put_oi_chg_pct,
+    }))
+  }, [data, hasSeries, series, effOpen, effNow])
 
   const bars = useMemo(() => {
     if (strikeFilter === 'all' || !data) return allBars
@@ -118,9 +157,31 @@ export function OpenInterestTool() {
     return allBars.filter((b) => b.strike >= lo && b.strike <= hi)
   }, [allBars, strikeFilter, data])
 
-  const openLabel = fmtClock(data?.open_ts)
-  const nowLabel = fmtClock(data?.now_ts)
+  // Window-aware totals (full chain) for the summary panels + PCR, so they stay
+  // consistent with the chart when a sub-window is selected.
+  const totals = useMemo(() => {
+    let cNow = 0, pNow = 0, cOpen = 0, pOpen = 0
+    for (const b of allBars) { cNow += b.callNow; pNow += b.putNow; cOpen += b.callOpen; pOpen += b.putOpen }
+    const pcrNow = cNow ? pNow / cNow : 0
+    return {
+      callOi: cNow, putOi: pNow, callChg: cNow - cOpen, putChg: pNow - pOpen,
+      pcr: pcrNow, pcrChange: pcrNow - (cOpen ? pOpen / cOpen : 0),
+    }
+  }, [allBars])
+
+  const callOi = hasSeries ? totals.callOi : (data?.total_call_oi ?? 0)
+  const putOi = hasSeries ? totals.putOi : (data?.total_put_oi ?? 0)
+  const callOiChg = hasSeries ? totals.callChg : (data?.total_call_oi_chg ?? 0)
+  const putOiChg = hasSeries ? totals.putChg : (data?.total_put_oi_chg ?? 0)
+  const pcrNow = hasSeries ? totals.pcr : (data?.pcr_oi ?? 0)
+  const pcrChange = hasSeries ? totals.pcrChange : (data?.pcr_change ?? 0)
+
+  const openLabel = hasSeries ? fmtClock(series[effOpen].t) : fmtClock(data?.open_ts)
+  const nowLabel = hasSeries ? fmtClock(series[effNow].t) : fmtClock(data?.now_ts)
+  const endLabel = hasSeries ? fmtClock(series[lastIdx].t) : nowLabel
   const lotSize = data?.lot_size ?? 75
+
+  const resetRange = () => { setNowIdx(null); setOpenMode('all') }
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[290px_1fr]">
@@ -216,7 +277,7 @@ export function OpenInterestTool() {
         {/* Market Sentiment */}
         <Panel className="p-4">
           <h3 className="mb-1 flex items-center gap-2 text-sm font-bold text-slate-800">
-            📊 Market Sentiment <span className="text-[11px] font-normal text-slate-400">(based on OI)</span>
+            <BarChart3 size={16} className="text-slate-400" /> Market Sentiment <span className="text-[11px] font-normal text-slate-400">(based on OI)</span>
           </h3>
           {loading || !data ? (
             <Skeleton className="mx-auto mt-3 h-40 w-40 rounded-full" />
@@ -229,9 +290,9 @@ export function OpenInterestTool() {
               <div className="mt-3 border-t border-slate-100 pt-3 text-center">
                 <div className="text-sm">
                   <span className="font-semibold text-slate-600">PCR: </span>
-                  <span className="font-bold text-slate-900">{formatNumber(data.pcr_oi, 2)}</span>
-                  <span className={cn('ml-1 font-semibold', data.pcr_change >= 0 ? 'text-emerald-600' : 'text-rose-600')}>
-                    ({data.pcr_change >= 0 ? '+' : ''}{formatNumber(data.pcr_change, 2)})
+                  <span className="font-bold text-slate-900">{formatNumber(pcrNow, 2)}</span>
+                  <span className={cn('ml-1 font-semibold', pcrChange >= 0 ? 'text-emerald-600' : 'text-rose-600')}>
+                    ({pcrChange >= 0 ? '+' : ''}{formatNumber(pcrChange, 2)})
                   </span>
                 </div>
               </div>
@@ -313,37 +374,74 @@ export function OpenInterestTool() {
             />
           )}
 
-          {/* Time range (session window) */}
+          {/* Time range (session window) — draggable when intraday history exists */}
           <div className="mt-5">
-            <div className="flex items-center gap-3 text-xs font-medium text-slate-500">
-              <span>{openLabel}</span>
-              <div className="relative h-1.5 flex-1 rounded-full bg-primary-500/30">
-                <div className="absolute inset-y-0 left-0 right-0 rounded-full bg-primary-500/60" />
-                <span className="absolute -top-1 left-0 h-3.5 w-3.5 -translate-x-1/2 rounded-full border-2 border-primary-600 bg-white" />
-                <span className="absolute -top-1 right-0 h-3.5 w-3.5 translate-x-1/2 rounded-full border-2 border-primary-600 bg-white" />
+            <div className="flex items-center gap-3">
+              {hasSeries && (
+                <button
+                  onClick={resetRange}
+                  className="press rounded-lg border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-100"
+                >
+                  Reset
+                </button>
+              )}
+              <span className="text-xs font-medium text-slate-500">{hasSeries ? fmtClock(series[0].t) : openLabel}</span>
+              <div className="relative flex-1">
+                {hasSeries ? (
+                  <>
+                    {/* Selected "now" bubble, tracking the thumb */}
+                    <span
+                      className="pointer-events-none absolute -top-7 z-10 -translate-x-1/2 rounded-md bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-white shadow"
+                      style={{ left: `${lastIdx === 0 ? 0 : (effNow / lastIdx) * 100}%` }}
+                    >
+                      {nowLabel}
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={lastIdx}
+                      step={1}
+                      value={effNow}
+                      onChange={(e) => {
+                        const v = Number(e.target.value)
+                        // Snap to the end → resume following live.
+                        setNowIdx(v >= lastIdx ? null : v)
+                      }}
+                      aria-label="Select time point"
+                      className="oi-range h-1.5 w-full cursor-pointer appearance-none rounded-full bg-primary-500/30 accent-primary-600"
+                    />
+                  </>
+                ) : (
+                  <div className="relative h-1.5 rounded-full bg-primary-500/30">
+                    <div className="absolute inset-y-0 left-0 right-0 rounded-full bg-primary-500/60" />
+                    <span className="absolute -top-1 left-0 h-3.5 w-3.5 -translate-x-1/2 rounded-full border-2 border-primary-600 bg-white" />
+                    <span className="absolute -top-1 right-0 h-3.5 w-3.5 translate-x-1/2 rounded-full border-2 border-primary-600 bg-white" />
+                  </div>
+                )}
               </div>
-              <span>{nowLabel}</span>
+              <span className="text-xs font-medium text-slate-500">{endLabel}</span>
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {QUICK_RANGES.map((r) => (
                 <button
-                  key={r}
-                  onClick={() => setQuickRange(r)}
+                  key={r.label}
+                  onClick={() => setOpenMode(r.minutes)}
+                  disabled={!hasSeries}
                   className={cn(
-                    'press rounded-lg border px-2.5 py-1.5 text-xs font-medium',
-                    quickRange === r
+                    'press rounded-lg border px-2.5 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50',
+                    openMode === r.minutes
                       ? 'border-primary-300 bg-primary-50 text-primary-700'
                       : 'border-slate-200 text-slate-600 hover:bg-slate-50',
                   )}
                 >
-                  {r}
+                  {r.label}
                 </button>
               ))}
             </div>
             <p className="mt-2 text-[11px] leading-snug text-slate-400">
               Showing OI build-up from {openLabel} to {nowLabel}
-              {data?.data_quality === 'live_proxy' && ' (open estimated from day-over-day OI change until intraday history accrues)'}.
-              Custom time-window comparison is coming soon.
+              {data?.data_quality === 'live_proxy' && ' (open estimated from day-over-day OI change until intraday history accrues)'}
+              {hasSeries ? '. Drag the slider to scrub through the session.' : '. Custom time-window comparison is coming soon.'}
             </p>
           </div>
         </Panel>
@@ -351,20 +449,20 @@ export function OpenInterestTool() {
         {/* Bottom panels */}
         <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
           <Panel className="p-4">
-            <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800">📊 Open Interest Change</h3>
-            {data && <BarPair call={data.total_call_oi_chg} put={data.total_put_oi_chg} showLot={showLot} lot={lotSize} signed />}
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800"><BarChart3 size={16} className="text-slate-400" /> Open Interest Change</h3>
+            {data && <BarPair call={callOiChg} put={putOiChg} showLot={showLot} lot={lotSize} signed />}
           </Panel>
           <Panel className="p-4">
-            <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800">📊 Total Open Interest</h3>
-            {data && <BarPair call={data.total_call_oi} put={data.total_put_oi} showLot={showLot} lot={lotSize} />}
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800"><BarChart3 size={16} className="text-slate-400" /> Total Open Interest</h3>
+            {data && <BarPair call={callOi} put={putOi} showLot={showLot} lot={lotSize} />}
           </Panel>
           <Panel className="p-4">
-            <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800">📊 Put/Call Ratio</h3>
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800"><BarChart3 size={16} className="text-slate-400" /> Put/Call Ratio</h3>
             {data && (
               <PcrDonut
-                callOi={data.total_call_oi}
-                putOi={data.total_put_oi}
-                pcr={data.pcr_oi}
+                callOi={callOi}
+                putOi={putOi}
+                pcr={pcrNow}
               />
             )}
           </Panel>

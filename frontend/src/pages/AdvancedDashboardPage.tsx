@@ -1,3 +1,4 @@
+import { AlertTriangle, Check } from 'lucide-react'
 import { getDashboard, getFutures, getOptionsMetrics } from '../api/endpoints'
 import type {
   DashboardData,
@@ -183,7 +184,7 @@ function VixCard({ loading, vix }: { loading: boolean; vix?: number }) {
             elevated ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400' : 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400'
           }`}
         >
-          {elevated ? '⚠ Elevated' : '✓ Calm'}
+          {elevated ? <><AlertTriangle size={12} className="mr-1" /> Elevated</> : <><Check size={12} className="mr-1" /> Calm</>}
         </span>
       )}
       <div className={`absolute bottom-0 left-0 h-1 w-full ${elevated ? 'bg-amber-400' : 'bg-blue-400'}`} />

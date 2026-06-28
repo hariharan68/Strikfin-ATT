@@ -291,6 +291,18 @@ export interface OILabSentiment {
   analysis: string
 }
 
+/**
+ * One intraday snapshot of Call/Put OI, aligned to the `strikes` order of the
+ * parent OILabView. Powers the interactive time-range slider — the client picks
+ * any (open, now) pair and recomputes the per-strike build-up. `null` = the
+ * strike had no row at that snapshot.
+ */
+export interface OILabSeriesBar {
+  t: string
+  call: (number | null)[]
+  put: (number | null)[]
+}
+
 export interface OILabView {
   instrument_id: number
   symbol: string
@@ -309,10 +321,50 @@ export interface OILabView {
   total_put_oi_chg: number
   sentiment: OILabSentiment
   strikes: OILabStrike[]
+  /** Intraday snapshots for the time-range slider; absent/empty when <2 exist. */
+  series?: OILabSeriesBar[]
 }
 
 export async function getOILabView(id: InstrumentId): Promise<OILabView> {
   const { data } = await api.get<OILabView>(`/options-lab/oi/${id}`)
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Options Lab — Multi OI & Volume (intraday time-series)
+// ---------------------------------------------------------------------------
+export interface OILabContract {
+  id: string // e.g. "25000CE"
+  strike: number
+  type: 'CE' | 'PE'
+}
+
+export interface OILabSeriesPoint {
+  t: string // ISO timestamp
+  fut: number // future / spot price at this snapshot
+  oi: (number | null)[] // aligned to contracts[]
+  vol: (number | null)[]
+  chg: (number | null)[]
+}
+
+export interface OILabSeries {
+  instrument_id: number
+  symbol: string
+  lot_size: number
+  spot: number
+  atm_strike: number
+  trade_date: string
+  open_ts: string | null
+  now_ts: string | null
+  data_quality: 'intraday' | 'live_proxy' | 'empty'
+  contracts: OILabContract[]
+  default_ids: string[] // ranked by open interest (High OI)
+  default_vol_ids: string[] // ranked by volume (High Volume)
+  series: OILabSeriesPoint[]
+}
+
+export async function getOILabSeries(id: InstrumentId): Promise<OILabSeries> {
+  const { data } = await api.get<OILabSeries>(`/options-lab/oi-series/${id}`)
   return data
 }
 

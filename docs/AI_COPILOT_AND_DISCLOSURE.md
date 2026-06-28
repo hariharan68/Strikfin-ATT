@@ -154,7 +154,7 @@ Every copilot question and every signal generation is traceable via the `audit_l
 
 ## Explicit Statement
 
-All outputs from Alphalytic AI — regime classifications, smart-money signals, FII interpretations, sentiment scores, AI bias signals, illustrative risk levels, and copilot answers — are **market intelligence for informational purposes only**.
+All outputs from Strikfin — regime classifications, smart-money signals, FII interpretations, sentiment scores, AI bias signals, illustrative risk levels, and copilot answers — are **market intelligence for informational purposes only**.
 
 They are **NOT** investment advice, research reports, or trading recommendations under SEBI (Research Analysts) Regulations, 2014. Users must consult a SEBI-registered Research Analyst or Investment Adviser before making any trading or investment decisions.
 

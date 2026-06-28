@@ -1,22 +1,24 @@
+import type { LucideIcon } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import type { AllInOneViewModel } from '../allInOne.types'
 
 type FactorEntry = AllInOneViewModel['factors'][number]
 
 function Column({
   title,
-  icon,
+  Icon,
   accent,
   items,
 }: {
   title: string
-  icon: string
+  Icon: LucideIcon
   accent: string
   items: FactorEntry[]
 }) {
   return (
     <div className="flex h-full flex-col rounded-xl border border-slate-200 bg-white p-4">
       <div className={`mb-2 flex items-center gap-1.5 text-sm font-semibold ${accent}`}>
-        <span aria-hidden>{icon}</span>
+        <Icon size={15} aria-hidden />
         {title}
       </div>
       {items.length === 0 ? (
@@ -45,9 +47,9 @@ export function FactorBreakdownRegion({ factors }: { factors: FactorEntry[] }) {
 
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-      <Column title="Bullish factors" icon="📈" accent="text-emerald-600" items={bullish} />
-      <Column title="Bearish factors" icon="📉" accent="text-rose-600" items={bearish} />
-      <Column title="Neutral factors" icon="➖" accent="text-amber-600" items={neutral} />
+      <Column title="Bullish factors" Icon={TrendingUp} accent="text-emerald-600" items={bullish} />
+      <Column title="Bearish factors" Icon={TrendingDown} accent="text-rose-600" items={bearish} />
+      <Column title="Neutral factors" Icon={Minus} accent="text-amber-600" items={neutral} />
     </div>
   )
 }

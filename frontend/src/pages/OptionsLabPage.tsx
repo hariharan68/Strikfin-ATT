@@ -1,15 +1,19 @@
 import { useSearchParams } from 'react-router-dom'
+import type { LucideIcon } from 'lucide-react'
+import { BarChart3, LineChart, Scale, Flame, Hexagon, FlaskConical } from 'lucide-react'
 import { cn } from '../lib/format'
 import { Panel } from '../components/ui/Panel'
 import { OpenInterestTool } from './options-lab/OpenInterestTool'
+import { MultiOiVolumeTool } from './options-lab/MultiOiVolumeTool'
+
 
 // ── OI Tools sub-navigation (matches the navbar's OI TOOLS section) ──
-const OI_TOOLS: { slug: string; label: string; icon: string; isNew?: boolean }[] = [
-  { slug: 'open-interest', label: 'Open Interest', icon: '📊' },
-  { slug: 'multi-oi-volume', label: 'Multi OI & Volume', icon: '📈' },
-  { slug: 'put-call-ratio', label: 'Put-Call Ratio', icon: '⚖️' },
-  { slug: 'max-pain', label: 'Max Pain', icon: '🔥' },
-  { slug: 'gamma-exposure', label: 'Gamma Exposure', icon: '🛡️', isNew: true },
+const OI_TOOLS: { slug: string; label: string; Icon: LucideIcon; isNew?: boolean }[] = [
+  { slug: 'open-interest', label: 'Open Interest', Icon: BarChart3 },
+  { slug: 'multi-oi-volume', label: 'Multi OI & Volume', Icon: LineChart },
+  { slug: 'put-call-ratio', label: 'Put-Call Ratio', Icon: Scale },
+  { slug: 'max-pain', label: 'Max Pain', Icon: Flame },
+  { slug: 'gamma-exposure', label: 'Gamma Exposure', Icon: Hexagon, isNew: true },
 ]
 
 const OI_SLUGS = new Set(OI_TOOLS.map((t) => t.slug))
@@ -64,7 +68,7 @@ export function OptionsLabPage() {
                   : 'border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-800',
               )}
             >
-              <span aria-hidden>{t.icon}</span>
+              <t.Icon size={18} strokeWidth={2} aria-hidden />
               {t.label}
               {t.isNew && (
                 <span className="rounded bg-emerald-500 px-1 py-0.5 text-[9px] font-bold uppercase text-white">New</span>
@@ -77,6 +81,8 @@ export function OptionsLabPage() {
       {/* Tool content */}
       {tool === 'open-interest' ? (
         <OpenInterestTool />
+      ) : tool === 'multi-oi-volume' ? (
+        <MultiOiVolumeTool />
       ) : (
         <ComingSoon label={ALL_TOOL_LABELS[tool] ?? 'Options Lab'} />
       )}
@@ -88,7 +94,7 @@ function ComingSoon({ label }: { label: string }) {
   return (
     <Panel>
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <span className="mb-4 text-5xl">🔬</span>
+        <FlaskConical size={48} className="mb-4 text-slate-300" strokeWidth={1.5} />
         <h2 className="text-xl font-bold text-slate-800">Coming Soon</h2>
         <p className="mt-2 max-w-sm text-sm text-slate-500">
           <span className="font-semibold text-primary-600">{label}</span> is under development. We're

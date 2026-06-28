@@ -10,7 +10,7 @@ import { useAuthStore } from '../stores/authStore'
 export const API_BASE_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ?? '/api/v1'
 
-export const REFRESH_TOKEN_KEY = 'alphalytic_refresh_token'
+export const REFRESH_TOKEN_KEY = 'strikfin_refresh_token'
 
 export const api: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,

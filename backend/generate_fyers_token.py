@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 def main():
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print("  Alphalytic AI — Fyers Token Generator")
+    print("  Strikfin — Fyers Token Generator")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
     # ── Load settings ─────────────────────────────────────────
@@ -205,7 +205,7 @@ def main():
     print("  2. Update .env:")
     print("     MARKET_DATA_VENDOR=fyers")
     print("")
-    print("  3. Open Alphalytic AI")
+    print("  3. Open Strikfin")
     print("     http://localhost:5173")
     print("")
     print("  Live NIFTY 50 & SENSEX data will now flow!")

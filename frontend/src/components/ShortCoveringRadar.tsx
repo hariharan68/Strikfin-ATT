@@ -1,15 +1,17 @@
+import type { LucideIcon } from 'lucide-react'
+import { Check, X, Eye, AlertTriangle, AlertCircle, CheckCircle2, Rocket } from 'lucide-react'
 import type { ShortCoveringData, ShortCoveringFactor } from '../api/endpoints'
 import { Skeleton } from './ui/Skeleton'
 
 // ── Status config ─────────────────────────────────────────────
 const STATUS_CONFIG: Record<string, {
-  bg: string; border: string; text: string; dot: string; label: string; barColor: string
+  bg: string; border: string; text: string; dot: string; Icon: LucideIcon; barColor: string
 }> = {
-  'Watching':       { bg: 'bg-slate-50',                              border: 'border-slate-200',                          text: 'text-slate-500',                          dot: 'bg-slate-400',   label: '👁',  barColor: '#94a3b8' },
-  'Early Signs':    { bg: 'bg-amber-50   dark:bg-amber-950/20',       border: 'border-amber-200   dark:border-amber-800/40',  text: 'text-amber-700   dark:text-amber-400',   dot: 'bg-amber-400',   label: '⚠',  barColor: '#f59e0b' },
-  'Possible Rally': { bg: 'bg-orange-50  dark:bg-orange-950/20',      border: 'border-orange-200  dark:border-orange-800/40', text: 'text-orange-700  dark:text-orange-400',  dot: 'bg-orange-400',  label: '🔶', barColor: '#f97316' },
-  'Confirmed':      { bg: 'bg-emerald-50 dark:bg-emerald-950/20',     border: 'border-emerald-200 dark:border-emerald-800/40',text: 'text-emerald-700 dark:text-emerald-400', dot: 'bg-emerald-500', label: '✅', barColor: '#10b981' },
-  'Strong Signal':  { bg: 'bg-green-50   dark:bg-green-950/20',       border: 'border-green-200   dark:border-green-800/40',  text: 'text-green-700   dark:text-green-400',   dot: 'bg-green-500',   label: '🚀', barColor: '#22c55e' },
+  'Watching':       { bg: 'bg-slate-50',                              border: 'border-slate-200',                          text: 'text-slate-500',                          dot: 'bg-slate-400',   Icon: Eye,  barColor: '#94a3b8' },
+  'Early Signs':    { bg: 'bg-amber-50   dark:bg-amber-950/20',       border: 'border-amber-200   dark:border-amber-800/40',  text: 'text-amber-700   dark:text-amber-400',   dot: 'bg-amber-400',   Icon: AlertTriangle,  barColor: '#f59e0b' },
+  'Possible Rally': { bg: 'bg-orange-50  dark:bg-orange-950/20',      border: 'border-orange-200  dark:border-orange-800/40', text: 'text-orange-700  dark:text-orange-400',  dot: 'bg-orange-400',  Icon: AlertCircle, barColor: '#f97316' },
+  'Confirmed':      { bg: 'bg-emerald-50 dark:bg-emerald-950/20',     border: 'border-emerald-200 dark:border-emerald-800/40',text: 'text-emerald-700 dark:text-emerald-400', dot: 'bg-emerald-500', Icon: CheckCircle2, barColor: '#10b981' },
+  'Strong Signal':  { bg: 'bg-green-50   dark:bg-green-950/20',       border: 'border-green-200   dark:border-green-800/40',  text: 'text-green-700   dark:text-green-400',   dot: 'bg-green-500',   Icon: Rocket, barColor: '#22c55e' },
 }
 
 const DEFAULT_CONFIG = STATUS_CONFIG['Watching']
@@ -86,7 +88,7 @@ function FactorRow({ factor }: { factor: ShortCoveringFactor }) {
           ? 'bg-emerald-500 text-white'
           : 'bg-slate-200 text-slate-400'
       }`}>
-        {factor.fired ? '✓' : '✗'}
+        {factor.fired ? <Check size={13} strokeWidth={3} /> : <X size={13} strokeWidth={3} />}
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
@@ -155,7 +157,7 @@ export function ShortCoveringRadar({ data, loading }: Props) {
         ) : (
           <div className={`flex items-center gap-2 rounded-full border ${cfg.border} px-3 py-1.5`}>
             <span className={`h-2 w-2 rounded-full ${cfg.dot}`} />
-            <span className={`text-xs font-bold ${cfg.text}`}>{cfg.label} {status}</span>
+            <span className={`flex items-center gap-1 text-xs font-bold ${cfg.text}`}><cfg.Icon size={13} /> {status}</span>
           </div>
         )}
       </div>

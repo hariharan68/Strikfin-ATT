@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { cn } from '../../lib/format'
 
 interface PageHeaderProps {
@@ -37,7 +38,7 @@ export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: (
   return (
     <div className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-400">
       <span className="flex items-center gap-2">
-        <span aria-hidden>⚠</span>
+        <AlertTriangle size={15} aria-hidden className="shrink-0" />
         {message}
       </span>
       {onRetry && (

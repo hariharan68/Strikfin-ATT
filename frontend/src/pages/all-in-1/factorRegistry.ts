@@ -1,6 +1,28 @@
 import type { BiasValue } from '../../api/endpoints'
 import type { FactorModule } from './allInOne.types'
 import {
+  TrendingUp,
+  BrickWall,
+  Layers,
+  Scale,
+  Target,
+  Magnet,
+  Waves,
+  BarChart3,
+  Sigma,
+  Flame,
+  Shield,
+  Signal,
+  Activity,
+  MoveVertical,
+  MoveHorizontal,
+  Droplet,
+  Calendar,
+  SlidersHorizontal,
+  Coins,
+  Compass,
+} from 'lucide-react'
+import {
   formatInt,
   formatNumber,
   formatPct,
@@ -51,7 +73,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 1,
     id: 'price-action',
     title: 'Price action',
-    icon: '📈',
+    icon: TrendingUp,
     sources: ['snapshot'],
     compute: (ctx) => {
       const s = ctx.snapshot ?? {}
@@ -83,7 +105,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 2,
     id: 'support-resistance',
     title: 'Support / resistance',
-    icon: '🧱',
+    icon: BrickWall,
     sources: ['levels'],
     compute: (ctx) => {
       const r = ctx.levels?.resistance?.[0] ?? ctx.snapshot?.resistance ?? ctx.optionsMetrics?.resistance
@@ -110,7 +132,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 3,
     id: 'open-interest',
     title: 'Open interest',
-    icon: '🗃️',
+    icon: Layers,
     sources: ['optionsMetrics'],
     compute: (ctx) => {
       const posture = ctx.optionsMetrics?.writing_posture
@@ -138,7 +160,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 4,
     id: 'pcr',
     title: 'PCR',
-    icon: '⚖️',
+    icon: Scale,
     sources: ['optionsMetrics'],
     compute: (ctx) => {
       const pcr = ctx.optionsMetrics?.pcr_oi
@@ -160,7 +182,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 5,
     id: 'max-pain',
     title: 'Max pain',
-    icon: '🎯',
+    icon: Target,
     sources: ['optionsMetrics'],
     compute: (ctx) => {
       const maxPain = ctx.optionsMetrics?.max_pain
@@ -185,7 +207,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 6,
     id: 'magnet-zones',
     title: 'Magnet zones',
-    icon: '🧲',
+    icon: Magnet,
     sources: ['chain'],
     compute: (ctx) => {
       const chain = ctx.chain ?? []
@@ -214,7 +236,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 7,
     id: 'iv',
     title: 'Implied vol',
-    icon: '🌫️',
+    icon: Waves,
     sources: ['optionsMetrics'],
     compute: (ctx) => {
       const iv = ctx.optionsMetrics?.atm_iv
@@ -236,7 +258,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 8,
     id: 'iv-rank',
     title: 'IV rank',
-    icon: '📊',
+    icon: BarChart3,
     sources: ['optionsMetrics'],
     compute: (ctx) => {
       const ivp = ctx.optionsMetrics?.iv_percentile
@@ -257,7 +279,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 9,
     id: 'greeks',
     title: 'Greeks',
-    icon: '🔢',
+    icon: Sigma,
     compute: () => ({
       value: 'Δ +0.12 · Θ high',
       detail: 'Net theta positive',
@@ -270,7 +292,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 10,
     id: 'india-vix',
     title: 'India VIX',
-    icon: '🔥',
+    icon: Flame,
     sources: ['snapshot'],
     compute: (ctx) => {
       const vix = ctx.snapshot?.india_vix
@@ -292,7 +314,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 11,
     id: 'gex',
     title: 'GEX',
-    icon: '🛡️',
+    icon: Shield,
     compute: () => ({
       value: 'Positive',
       detail: 'Vol suppressed, pinned',
@@ -305,7 +327,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 12,
     id: 'volume-profile',
     title: 'Volume profile',
-    icon: '📶',
+    icon: Signal,
     compute: () => ({
       value: 'POC 25,120',
       detail: 'Acceptance zone',
@@ -318,7 +340,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 13,
     id: 'vwap',
     title: 'VWAP',
-    icon: '〰️',
+    icon: Activity,
     compute: () => ({
       value: 'Above VWAP',
       detail: 'Institutional buy bias',
@@ -331,7 +353,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 14,
     id: 'atr',
     title: 'ATR',
-    icon: '↕️',
+    icon: MoveVertical,
     compute: () => ({
       value: '182 pts',
       detail: 'Expected daily range',
@@ -344,7 +366,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 15,
     id: 'expected-move',
     title: 'Expected move',
-    icon: '↔️',
+    icon: MoveHorizontal,
     sources: ['chain', 'optionsMetrics'],
     compute: (ctx) => {
       const atm = ctx.optionsMetrics?.atm_strike ?? ctx.snapshot?.atm_strike
@@ -367,7 +389,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 16,
     id: 'liquidity',
     title: 'Liquidity',
-    icon: '💧',
+    icon: Droplet,
     sources: ['chain'],
     compute: (ctx) => {
       const chain = ctx.chain ?? []
@@ -390,7 +412,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 17,
     id: 'event-risk',
     title: 'Event risk',
-    icon: '📅',
+    icon: Calendar,
     compute: () => ({
       value: 'FED · Wed',
       detail: 'Elevated vol risk',
@@ -403,7 +425,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 18,
     id: 'risk-reward',
     title: 'Risk / reward',
-    icon: '🎚️',
+    icon: SlidersHorizontal,
     sources: ['signal'],
     compute: (ctx) => {
       const rr = ctx.signal?.risk_reward
@@ -432,7 +454,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 19,
     id: 'position-sizing',
     title: 'Position size',
-    icon: '🪙',
+    icon: Coins,
     sources: ['signal'],
     compute: (ctx) => {
       const entry = Number(ctx.signal?.entry_ref)
@@ -455,7 +477,7 @@ export const FACTOR_MODULES: FactorModule[] = [
     index: 20,
     id: 'trading-decision',
     title: 'Trading decision',
-    icon: '🧭',
+    icon: Compass,
     sources: ['signal'],
     compute: (ctx) => {
       const sig = ctx.signal
