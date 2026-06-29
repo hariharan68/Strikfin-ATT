@@ -291,7 +291,14 @@ class OptionsLabService:
                     "chg": chg,
                 })
 
-        quality = "intraday" if len(series) >= 2 else "live_proxy"
+        # Quality reflects how many REAL snapshots exist; if only one, synthesize
+        # a 09:15 open point so the chart still draws a line (open → now).
+        real_points = len(series)
+        if real_points == 1:
+            series.insert(
+                0, self._synth_open_point(series[0], self._market_open_iso(latest.trade_date))
+            )
+        quality = "intraday" if real_points >= 2 else "live_proxy"
         return {
             "instrument_id": instrument_id,
             "symbol":        _SYMBOLS.get(instrument_id, "NIFTY 50"),
@@ -492,6 +499,31 @@ class OptionsLabService:
             out.setdefault(r.snapshot_id, []).append(d)
         return out
 
+    @staticmethod
+    def _synth_open_point(now_point: dict, open_ts_iso: str) -> dict:
+        """
+        Synthesize a 09:15 "open" point from the day-over-day OI change so a single
+        live snapshot still renders as a 2-point intraday line (open → now) instead
+        of a blank chart. Mirrors the proxy the OI bar tool already uses:
+            open_oi = now_oi − oi_change
+        Volume opens at ~0 (it accumulates through the session) and OI-change opens
+        at 0. The future price is held flat (we don't have the 09:15 spot).
+        """
+        oi = now_point["oi"]
+        chg = now_point["chg"]
+        vol = now_point["vol"]
+        open_oi = [
+            (o - c) if (o is not None and c is not None) else o
+            for o, c in zip(oi, chg)
+        ]
+        return {
+            "t":   open_ts_iso,
+            "fut": now_point["fut"],
+            "oi":  open_oi,
+            "vol": [None if v is None else 0 for v in vol],
+            "chg": [None if c is None else 0 for c in chg],
+        }
+
     def _live_series(self, instrument_id: int, window: int) -> dict:
         """No DB history — one live chain rendered as a single series point."""
         chain = get_option_chain(instrument_id)
@@ -542,6 +574,9 @@ class OptionsLabService:
         ranked = sorted(contracts, key=lambda c: _i(idx[(c["strike"], c["type"])].get("oi")), reverse=True)
         ranked_vol = sorted(contracts, key=lambda c: _i(idx[(c["strike"], c["type"])].get("volume")), reverse=True)
         now_ts = datetime.now(timezone.utc).isoformat()
+        open_ts = self._market_open_iso(datetime.now(_IST).date())
+        now_point = {"t": now_ts, "fut": round(spot, 2), "oi": oi, "vol": vol, "chg": chg}
+        open_point = self._synth_open_point(now_point, open_ts)
 
         return {
             "instrument_id": instrument_id,
@@ -550,13 +585,15 @@ class OptionsLabService:
             "spot":          round(spot, 2),
             "atm_strike":    atm,
             "trade_date":    datetime.now(_IST).date().isoformat(),
-            "open_ts":       now_ts,
+            "open_ts":       open_ts,
             "now_ts":        now_ts,
             "data_quality":  "live_proxy",
             "contracts":     contracts,
             "default_ids":   [c["id"] for c in ranked[:5]],
             "default_vol_ids": [c["id"] for c in ranked_vol[:5]],
-            "series":        [{"t": now_ts, "fut": round(spot, 2), "oi": oi, "vol": vol, "chg": chg}],
+            # Two synthetic points (09:15 open → now) so the line renders even
+            # before a second real snapshot accrues.
+            "series":        [open_point, now_point],
         }
 
     async def _resolve_series(self, instrument_id: int):

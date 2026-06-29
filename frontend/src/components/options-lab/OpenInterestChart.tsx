@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { formatInt } from '../../lib/format'
+import { useTheme } from '../../lib/useTheme'
 
 // ── Types ──────────────────────────────────────────────────────────
 export interface OIBar {
@@ -29,17 +30,48 @@ interface Props {
   nowLabel: string
 }
 
-// Reference palette: Call = green, Put = red.
-const CALL = '#16a34a' // green-600
+// ── Bars (vivid Call=green / Put=red — identical in every theme) ──
+const CALL = '#22c55e' // green-500
 const PUT = '#ef4444' // red-500
 
+// Canvas + axis colours follow the app theme (only the backdrop changes — the
+// bars/hatching/chips stay the same). Dark family → dark canvas; light → light.
+function chromeFor(isDark: boolean) {
+  return isDark
+    ? {
+        canvas: '#0b0f17',
+        grid: 'rgba(148,163,184,0.13)',
+        baseline: 'rgba(148,163,184,0.38)',
+        axisText: '#94a3b8',
+        strikeText: '#cbd5e1',
+        atmText: '#fbbf24',
+        atmCol: 'rgba(251,191,36,0.10)',
+        hoverCol: 'rgba(255,255,255,0.06)',
+        legend: 'text-slate-300',
+      }
+    : {
+        canvas: '#ffffff',
+        grid: 'rgba(100,116,139,0.16)',
+        baseline: 'rgba(100,116,139,0.35)',
+        axisText: '#64748b',
+        strikeText: '#475569',
+        atmText: '#b45309',
+        atmCol: 'rgba(245,158,11,0.10)',
+        hoverCol: 'rgba(15,23,42,0.06)',
+        legend: 'text-slate-600',
+      }
+}
+
 // Layout (px; chart lives inside a horizontal scroll container)
-const H = 392
-const PAD_TOP = 30
-const PAD_BOTTOM = 44
-const PAD_LEFT = 56
-const PAD_RIGHT = 16
-const GROUP_W = 54
+const H = 424
+const PAD_TOP = 38
+const PAD_BOTTOM = 42
+const PAD_LEFT = 58
+const PAD_RIGHT = 18
+const GROUP_W = 60
+const BAR_W = 20
+const GROUP_LMARGIN = 8
+const MID_GAP = 4
 
 function niceCeil(x: number): number {
   if (x <= 0) return 1
@@ -64,6 +96,19 @@ function fmtSignedOI(n: number, showLot: boolean, lot: number): string {
   return `${sign}${fmtOI(Math.abs(n), showLot, lot)}`
 }
 
+/** A rect with the TWO top corners rounded — square base, crisp top. */
+function topRect(x: number, y: number, w: number, h: number, r: number): string {
+  const rr = Math.max(0, Math.min(r, w / 2, h))
+  return (
+    `M${x},${y + h}` +
+    `L${x},${y + rr}` +
+    `Q${x},${y} ${x + rr},${y}` +
+    `L${x + w - rr},${y}` +
+    `Q${x + w},${y} ${x + w},${y + rr}` +
+    `L${x + w},${y + h}Z`
+  )
+}
+
 export function OpenInterestChart({
   bars,
   mode,
@@ -76,6 +121,8 @@ export function OpenInterestChart({
   nowLabel,
 }: Props) {
   const [hover, setHover] = useState<number | null>(null)
+  const { isDark } = useTheme()
+  const C = chromeFor(isDark)
 
   // Scale OI to lots if requested — keeps the axis consistent with the labels.
   const sc = (v: number) => (showLot ? v / Math.max(1, lotSize) : v)
@@ -135,8 +182,8 @@ export function OpenInterestChart({
 
   const { width, yOf, groupX, groupCenter, spotX, maxPainX, ticks, atmIndex } = layout
   const baseY = PAD_TOP + (H - PAD_TOP - PAD_BOTTOM)
-  const barW = (GROUP_W - 16) / 2
-  const labelEvery = bars.length > 24 ? 2 : 1
+  const labelEvery = bars.length > 26 ? 2 : 1
+  const R = 3
 
   /** One option-side bar with total+change / change / total rendering. */
   function SideBar({
@@ -154,53 +201,46 @@ export function OpenInterestChart({
   }) {
     const o = sc(open)
     const c = sc(now)
-    const chg = c - o
-    const increase = chg >= 0
+    const increase = c >= o
 
     if (mode === 'total') {
       const top = yOf(c)
-      return <rect x={x} y={top} width={barW} height={Math.max(1, baseY - top)} fill={color} opacity={0.92} rx={2} />
+      return <path d={topRect(x, top, BAR_W, Math.max(1, baseY - top), R)} fill={color} />
     }
 
     if (mode === 'change') {
-      const mag = Math.abs(chg)
+      const mag = Math.abs(c - o)
       const top = yOf(mag)
-      const h = Math.max(increase ? 2 : 1, baseY - top)
-      return (
-        <rect
-          x={x}
-          y={top}
-          width={barW}
-          height={h}
-          fill={increase ? `url(#${hatchId})` : 'transparent'}
-          stroke={color}
-          strokeWidth={increase ? 0.75 : 1.5}
-          rx={2}
-        />
+      const h = Math.max(increase ? 2 : 1.5, baseY - top)
+      return increase ? (
+        <path d={topRect(x, top, BAR_W, h, R)} fill={`url(#${hatchId})`} stroke={color} strokeWidth={1} />
+      ) : (
+        <path d={topRect(x, top, BAR_W, h, R)} fill="none" stroke={color} strokeWidth={1.5} strokeDasharray="3 2" />
       )
     }
 
-    // change_total: solid base + change segment on top (hatch up / outline down)
-    const baseTop = yOf(Math.min(o, c))
+    // change_total: solid base (lower of open/now) + change segment on top.
+    //   increase → hatched segment (OI added);  decrease → dashed outline (OI lost).
+    const lo = Math.min(o, c)
+    const hi = Math.max(o, c)
+    const baseTop = yOf(lo)
     const baseH = Math.max(1, baseY - baseTop)
-    const segTop = yOf(Math.max(o, c))
+    const segTop = yOf(hi)
     const segH = Math.max(0, baseTop - segTop)
+    const hasSeg = segH > 0.6
     return (
       <g>
-        <rect x={x} y={baseTop} width={barW} height={baseH} fill={color} opacity={0.92} rx={2} />
-        {segH > 0.5 && (
-          <rect
-            x={x}
-            y={segTop}
-            width={barW}
-            height={segH}
-            fill={increase ? `url(#${hatchId})` : 'transparent'}
-            stroke={color}
-            strokeWidth={increase ? 0.75 : 1.5}
-            strokeDasharray={increase ? undefined : '3 2'}
-            rx={2}
-          />
+        {hasSeg ? (
+          <rect x={x} y={baseTop} width={BAR_W} height={baseH} fill={color} />
+        ) : (
+          <path d={topRect(x, baseTop, BAR_W, baseH, R)} fill={color} />
         )}
+        {hasSeg &&
+          (increase ? (
+            <path d={topRect(x, segTop, BAR_W, segH, R)} fill={`url(#${hatchId})`} stroke={color} strokeWidth={1} />
+          ) : (
+            <path d={topRect(x, segTop, BAR_W, segH, R)} fill="none" stroke={color} strokeWidth={1.4} strokeDasharray="3 2" />
+          ))}
       </g>
     )
   }
@@ -211,16 +251,19 @@ export function OpenInterestChart({
   const flip = tipLeft > PAD_LEFT + (width - PAD_LEFT) * 0.62
 
   return (
-    <div className="relative overflow-x-auto pb-1">
+    <div
+      className="relative overflow-x-auto rounded-2xl pb-2"
+      style={{ background: C.canvas }}
+    >
       <svg width={width} height={H} className="block" role="img" aria-label="Open interest by strike">
         <defs>
-          <pattern id="callHatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
-            <rect width="6" height="6" fill={CALL} opacity={0.18} />
-            <line x1="0" y1="0" x2="0" y2="6" stroke={CALL} strokeWidth="2.2" />
+          <pattern id="callHatch" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)">
+            <rect width="7" height="7" fill={CALL} opacity={0.28} />
+            <line x1="0" y1="0" x2="0" y2="7" stroke={CALL} strokeWidth="3" />
           </pattern>
-          <pattern id="putHatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
-            <rect width="6" height="6" fill={PUT} opacity={0.18} />
-            <line x1="0" y1="0" x2="0" y2="6" stroke={PUT} strokeWidth="2.2" />
+          <pattern id="putHatch" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)">
+            <rect width="7" height="7" fill={PUT} opacity={0.28} />
+            <line x1="0" y1="0" x2="0" y2="7" stroke={PUT} strokeWidth="3" />
           </pattern>
         </defs>
 
@@ -228,11 +271,10 @@ export function OpenInterestChart({
         {atmIndex >= 0 && (
           <rect
             x={groupX(atmIndex)}
-            y={PAD_TOP - 8}
+            y={PAD_TOP - 10}
             width={GROUP_W}
-            height={baseY - PAD_TOP + 8}
-            className="fill-primary-500"
-            opacity={0.07}
+            height={baseY - PAD_TOP + 10}
+            fill={C.atmCol}
           />
         )}
 
@@ -240,11 +282,10 @@ export function OpenInterestChart({
         {hover !== null && (
           <rect
             x={groupX(hover)}
-            y={PAD_TOP - 8}
+            y={PAD_TOP - 10}
             width={GROUP_W}
-            height={baseY - PAD_TOP + 8}
-            className="fill-slate-400"
-            opacity={0.1}
+            height={baseY - PAD_TOP + 10}
+            fill={C.hoverCol}
           />
         )}
 
@@ -256,36 +297,36 @@ export function OpenInterestChart({
               x2={width - PAD_RIGHT}
               y1={yOf(t)}
               y2={yOf(t)}
-              stroke="var(--color-slate-100)"
+              stroke={C.grid}
               strokeWidth={1}
             />
-            <text x={PAD_LEFT - 8} y={yOf(t) + 3} textAnchor="end" className="fill-slate-400 text-[10px]">
+            <text x={PAD_LEFT - 9} y={yOf(t) + 3} textAnchor="end" fill={C.axisText} className="text-[10px]">
               {t === 0 ? '0' : fmtOI(showLot ? t * lotSize : t, showLot, lotSize)}
             </text>
           </g>
         ))}
 
-        {/* Max Pain line (orange, behind bars) */}
+        {/* Max Pain line (orange) */}
         {maxPainX !== null && (
           <g>
-            <line x1={maxPainX} x2={maxPainX} y1={PAD_TOP - 4} y2={baseY} stroke="#f59e0b" strokeWidth={1.25} strokeDasharray="5 3" />
-            <g transform={`translate(${maxPainX}, ${PAD_TOP - 14})`}>
-              <rect x={-58} y={-9} width={116} height={17} rx={4} fill="#b45309" />
-              <text x={0} y={3} textAnchor="middle" className="fill-white text-[10px] font-semibold">
+            <line x1={maxPainX} x2={maxPainX} y1={PAD_TOP - 6} y2={baseY} stroke="#f59e0b" strokeWidth={1.25} strokeDasharray="5 3" />
+            <g transform={`translate(${maxPainX}, ${PAD_TOP - 16})`}>
+              <rect x={-60} y={-9} width={120} height={18} rx={5} fill="#b45309" />
+              <text x={0} y={4} textAnchor="middle" fill="#fff" className="text-[10px] font-semibold">
                 Max Pain : {maxPain}
               </text>
             </g>
           </g>
         )}
 
-        {/* Spot line (slate dashed) */}
+        {/* Spot line (light dashed) */}
         {spotX !== null && (
           <g>
-            <line x1={spotX} x2={spotX} y1={PAD_TOP - 4} y2={baseY} stroke="var(--color-slate-600)" strokeWidth={1.25} strokeDasharray="2 3" />
+            <line x1={spotX} x2={spotX} y1={PAD_TOP - 6} y2={baseY} stroke="rgba(226,232,240,0.65)" strokeWidth={1.25} strokeDasharray="2 3" />
             {spot !== undefined && (
-              <g transform={`translate(${spotX}, ${PAD_TOP + 4})`}>
-                <rect x={-46} y={-2} width={92} height={17} rx={4} className="fill-slate-800" />
-                <text x={0} y={10} textAnchor="middle" className="fill-white text-[10px] font-semibold">
+              <g transform={`translate(${spotX}, ${PAD_TOP + 5})`}>
+                <rect x={-48} y={-2} width={96} height={18} rx={5} fill="#1e293b" stroke="rgba(148,163,184,0.4)" strokeWidth={0.5} />
+                <text x={0} y={11} textAnchor="middle" fill="#fff" className="text-[10px] font-semibold">
                   Spot : {Math.round(spot)}
                 </text>
               </g>
@@ -296,8 +337,8 @@ export function OpenInterestChart({
         {/* Bars + hover hit areas + strike labels */}
         {bars.map((b, i) => {
           const gx = groupX(i)
-          const callX = gx + 6
-          const putX = callX + barW + 4
+          const callX = gx + GROUP_LMARGIN
+          const putX = callX + BAR_W + MID_GAP
           const isAtm = i === atmIndex
           return (
             <g key={b.strike}>
@@ -305,9 +346,9 @@ export function OpenInterestChart({
               <SideBar x={putX} open={b.putOpen} now={b.putNow} color={PUT} hatchId="putHatch" />
               <rect
                 x={gx}
-                y={PAD_TOP - 8}
+                y={PAD_TOP - 10}
                 width={GROUP_W}
-                height={baseY - PAD_TOP + 8}
+                height={baseY - PAD_TOP + 10}
                 fill="transparent"
                 onMouseEnter={() => setHover(i)}
                 onMouseLeave={() => setHover((h) => (h === i ? null : h))}
@@ -317,7 +358,8 @@ export function OpenInterestChart({
                   x={groupCenter(i)}
                   y={baseY + 16}
                   textAnchor="middle"
-                  className={isAtm ? 'fill-primary-700 text-[10px] font-bold' : 'fill-slate-500 text-[10px]'}
+                  fill={isAtm ? C.atmText : C.strikeText}
+                  className={isAtm ? 'text-[10px] font-bold' : 'text-[10px]'}
                 >
                   {b.strike}
                 </text>
@@ -326,22 +368,22 @@ export function OpenInterestChart({
           )
         })}
 
-        <line x1={PAD_LEFT} x2={width - PAD_RIGHT} y1={baseY} y2={baseY} stroke="var(--color-slate-300)" strokeWidth={1} />
+        <line x1={PAD_LEFT} x2={width - PAD_RIGHT} y1={baseY} y2={baseY} stroke={C.baseline} strokeWidth={1} />
       </svg>
 
       {/* Tooltip — the priority interaction */}
       {hb && (
         <div
-          className="pointer-events-none absolute z-20 w-[230px] rounded-lg border border-slate-700 bg-slate-900/95 px-3 py-2.5 text-xs text-slate-100 shadow-xl backdrop-blur"
+          className="pointer-events-none absolute z-20 w-[236px] rounded-lg border border-slate-700 bg-slate-900/95 px-3 py-2.5 text-xs text-slate-100 shadow-xl backdrop-blur"
           style={{
-            left: flip ? tipLeft - 244 : tipLeft + 14,
+            left: flip ? tipLeft - 250 : tipLeft + 14,
             top: PAD_TOP,
           }}
         >
           <div className="mb-2 flex items-center justify-between font-semibold">
             <span>Strike: {hb.strike}</span>
             {hb.strike === atmStrike && (
-              <span className="rounded bg-primary-500/30 px-1 text-[9px] font-bold text-primary-200">ATM</span>
+              <span className="rounded bg-amber-500/25 px-1 text-[9px] font-bold text-amber-300">ATM</span>
             )}
           </div>
 
@@ -374,7 +416,7 @@ export function OpenInterestChart({
       )}
 
       {/* Legend */}
-      <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[11px] text-slate-500">
+      <div className={`flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 px-3 pb-2 pt-1 text-[11px] ${C.legend}`}>
         <LegendItem color={CALL} kind="solid" label="Call OI" />
         <LegendItem color={CALL} kind="outline" label="Call OI Decrease" />
         <LegendItem color={CALL} kind="hatch" label="Call OI Increase" />
@@ -420,8 +462,8 @@ function TipBlock({
       <Row
         marker={
           <span
-            className="inline-block h-2.5 w-2.5 rounded-sm border"
-            style={{ borderColor: color, background: 'transparent' }}
+            className="inline-block h-2.5 w-2.5 rounded-sm"
+            style={{ background: `repeating-linear-gradient(45deg, ${color} 0 2px, transparent 2px 4px)`, border: `1px solid ${color}` }}
           />
         }
         left={`${label} OI Chg`}
@@ -464,9 +506,9 @@ function LegendItem({ color, kind, label }: { color: string; kind: 'solid' | 'ou
     kind === 'solid'
       ? { background: color }
       : kind === 'outline'
-        ? { border: `1.5px solid ${color}`, background: 'transparent' }
+        ? { border: `1.5px dashed ${color}`, background: 'transparent' }
         : {
-            background: `repeating-linear-gradient(45deg, ${color} 0 2px, transparent 2px 5px)`,
+            background: `repeating-linear-gradient(45deg, ${color} 0 2.5px, transparent 2.5px 6px)`,
             border: `1px solid ${color}`,
           }
   return (

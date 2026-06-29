@@ -3,10 +3,9 @@ import type { ReactNode } from 'react'
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { Zap } from 'lucide-react'
 import { Navbar } from './components/Navbar'
-import { FloatingCopilot } from './components/FloatingCopilot'
 import { ToastProvider } from './components/ui/Toast'
-import { useAuthStore, REFRESH_TOKEN_KEY } from './stores/authStore'
-import { getMe, refresh } from './api/endpoints'
+import { useAuthStore } from './stores/authStore'
+import { restoreSession } from './lib/session'
 import { LoginPage } from './pages/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { OptionsPage } from './pages/OptionsPage'
@@ -37,8 +36,6 @@ function Splash() {
 /** Guards protected routes; restores a session from the refresh token if needed. */
 function RequireAuth({ children }: { children: ReactNode }) {
   const accessToken = useAuthStore((s) => s.accessToken)
-  const setAccessToken = useAuthStore((s) => s.setAccessToken)
-  const setUser = useAuthStore((s) => s.setUser)
   const [status, setStatus] = useState<'checking' | 'ok' | 'denied'>(
     accessToken ? 'ok' : 'checking',
   )
@@ -48,34 +45,16 @@ function RequireAuth({ children }: { children: ReactNode }) {
       setStatus('ok')
       return
     }
-    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
-    if (!refreshToken) {
-      setStatus('denied')
-      return
-    }
     let active = true
-    void (async () => {
-      try {
-        const tokens = await refresh(refreshToken)
-        if (!active) return
-        setAccessToken(tokens.access_token)
-        if (tokens.refresh_token) {
-          localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token)
-        }
-        const me = await getMe()
-        if (!active) return
-        setUser(me)
-        setStatus('ok')
-      } catch {
-        if (!active) return
-        localStorage.removeItem(REFRESH_TOKEN_KEY)
-        setStatus('denied')
-      }
-    })()
+    // Coalesced restore — safe against StrictMode's double-invoke and any
+    // concurrent caller, so the single-use refresh token is never raced.
+    void restoreSession().then((ok) => {
+      if (active) setStatus(ok ? 'ok' : 'denied')
+    })
     return () => {
       active = false
     }
-  }, [accessToken, setAccessToken, setUser])
+  }, [accessToken])
 
   if (status === 'checking') return <Splash />
   if (status === 'denied') return <Navigate to="/" replace />
@@ -93,7 +72,6 @@ function AppLayout() {
           <Outlet />
         </div>
       </main>
-      <FloatingCopilot />
     </div>
   )
 }

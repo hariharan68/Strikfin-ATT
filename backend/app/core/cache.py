@@ -67,12 +67,26 @@ class _InProcessBackend:
 
 
 class _RedisBackend:
-    """Shared Redis backend (async redis-py). Used only when REDIS_URL is set."""
+    """Shared Redis backend (async redis-py). Used only when REDIS_URL is set.
+
+    Configured to FAIL FAST: if Redis is unreachable, ops raise in a few hundred
+    milliseconds instead of retrying with backoff for seconds. The Cache facade
+    then trips a circuit breaker and serves from the in-process cache, so a down
+    Redis can never add latency to a request.
+    """
 
     def __init__(self, url: str) -> None:
         import redis.asyncio as redis  # imported lazily so redis is optional
 
-        self._redis = redis.from_url(url, encoding="utf-8", decode_responses=True)
+        self._redis = redis.from_url(
+            url,
+            encoding="utf-8",
+            decode_responses=True,
+            socket_connect_timeout=0.25,  # cap each connect attempt
+            socket_timeout=0.5,           # cap each read/write
+            retry_on_timeout=False,       # do not retry — fail fast, fall back
+            health_check_interval=30,     # re-probe a recovered connection
+        )
 
     async def get(self, key: str) -> Optional[str]:
         return await self._redis.get(key)
@@ -86,41 +100,92 @@ class _RedisBackend:
 # ─────────────────────────────────────────────────────────────
 
 class Cache:
+    """Resilient cache facade.
+
+    Correctness in every Redis state, with no request ever blocked:
+
+      • Redis up   → shared Redis cache (fast, cross-worker).
+      • Redis down → automatic in-process fallback (still fast); a circuit
+                     breaker skips Redis for REDIS_COOLDOWN seconds so only the
+                     first probe in each window pays the (tiny) timeout.
+      • Recovery   → after the cooldown the next op re-probes Redis and, on
+                     success, resumes using it. No restart needed.
+
+    The in-process cache is written on every set (the keyspace is small and
+    bounded), so the fallback is always warm if Redis trips mid-flight.
+    """
+
+    REDIS_COOLDOWN = 30.0  # seconds to skip a known-down Redis before re-probing
+
     def __init__(self) -> None:
-        self._backend: Any
+        # The in-process cache is ALWAYS available as a fast fallback.
+        self._memory = _InProcessBackend()
+        self._redis: Optional[_RedisBackend] = None
+        self._redis_down_until = 0.0
+        self._warned = False
+
         if settings.REDIS_URL:
             try:
-                self._backend = _RedisBackend(settings.REDIS_URL)
-                self.kind = "redis"
+                self._redis = _RedisBackend(settings.REDIS_URL)
+                self.kind = "redis (in-process fallback)"
             except Exception:
                 logger.warning(
                     "REDIS_URL set but redis backend failed to init — "
-                    "falling back to in-process cache", exc_info=True,
+                    "using in-process cache", exc_info=True,
                 )
-                self._backend = _InProcessBackend()
+                self._redis = None
                 self.kind = "in-process (redis init failed)"
         else:
-            self._backend = _InProcessBackend()
             self.kind = "in-process"
-        self._warned = False
+
+    def _redis_available(self) -> bool:
+        """True when Redis is configured and the circuit breaker is closed."""
+        return self._redis is not None and time.time() >= self._redis_down_until
+
+    def _trip(self) -> None:
+        """Open the circuit so a dead/slow Redis is skipped for a cooldown."""
+        self._redis_down_until = time.time() + self.REDIS_COOLDOWN
+        self._warn_once()
 
     async def get_json(self, key: str) -> Optional[Any]:
+        # Prefer Redis when it's believed healthy; fall back to memory on error.
+        if self._redis_available():
+            try:
+                raw = await self._redis.get(key)  # type: ignore[union-attr]
+                return json.loads(raw) if raw else None
+            except Exception:
+                self._trip()  # fall through to in-process
         try:
-            raw = await self._backend.get(key)
+            raw = await self._memory.get(key)
             return json.loads(raw) if raw else None
         except Exception:
-            self._warn_once()
             return None  # treat any failure as a cache miss
 
     async def set_json(self, key: str, value: Any, ttl: int) -> None:
         try:
-            await self._backend.set(key, json.dumps(value, default=str), ttl)
+            data = json.dumps(value, default=str)
         except Exception:
-            self._warn_once()  # never let a cache write break the request
+            return  # un-serialisable value — never let it break the request
+
+        # Always keep an in-process copy so reads stay fast even if Redis is
+        # down now or trips between this write and the next read.
+        try:
+            await self._memory.set(key, data, ttl)
+        except Exception:
+            pass
+
+        if self._redis_available():
+            try:
+                await self._redis.set(key, data, ttl)  # type: ignore[union-attr]
+            except Exception:
+                self._trip()  # never let a cache write block/break the request
 
     def _warn_once(self) -> None:
         if not self._warned:
-            logger.warning("cache backend error — degrading to no-cache", exc_info=True)
+            logger.warning(
+                "Redis unreachable — serving from in-process cache "
+                "(retrying every %.0fs)", self.REDIS_COOLDOWN, exc_info=True,
+            )
             self._warned = True
 
 

@@ -184,23 +184,32 @@ async def dashboard(
 
     ai_summary = _build_ai_summary(nifty, ns_dict, ss_dict)
 
-    # Extract chain / options from index cards then strip private keys
-    nifty_chain   = nifty.pop("_chain_rows", [])
-    nifty_options = nifty.pop("_options", {})
+    # Extract chain / options from BOTH index cards, then strip private keys.
+    # Keeping both instruments' options here (instead of discarding SENSEX) keeps
+    # this aggregate honest — a NIFTY-only `options`/`option_chain` is what made
+    # the dashboard show NIFTY data while SENSEX was selected.
+    nifty_chain    = nifty.pop("_chain_rows", [])
+    nifty_options  = nifty.pop("_options", {})
     nifty.pop("_atm_strike", None)
-    sensex.pop("_chain_rows", None)
-    sensex.pop("_options", None)
+    sensex_chain   = sensex.pop("_chain_rows", [])
+    sensex_options = sensex.pop("_options", {})
     sensex.pop("_atm_strike", None)
 
     return {
-        "as_of":         now.isoformat(),
-        "market_hours":  _is_market_hours(),
-        "nifty":         nifty,
-        "sensex":        sensex,
-        "nifty_signal":  ns_dict,
-        "sensex_signal": ss_dict,
-        "ai_summary":    ai_summary,
-        "option_chain":  nifty_chain,
-        "options":       nifty_options,
-        "disclaimer":    DISCLAIMER,
+        "as_of":                now.isoformat(),
+        "market_hours":         _is_market_hours(),
+        "nifty":                nifty,
+        "sensex":               sensex,
+        "nifty_signal":         ns_dict,
+        "sensex_signal":        ss_dict,
+        "ai_summary":           ai_summary,
+        # Per-instrument options + chain (consumers pick by selected instrument).
+        "nifty_option_chain":   nifty_chain,
+        "nifty_options":        nifty_options,
+        "sensex_option_chain":  sensex_chain,
+        "sensex_options":       sensex_options,
+        # Back-compat: legacy NIFTY-default fields.
+        "option_chain":         nifty_chain,
+        "options":              nifty_options,
+        "disclaimer":           DISCLAIMER,
     }

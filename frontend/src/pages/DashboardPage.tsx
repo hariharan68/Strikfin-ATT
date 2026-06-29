@@ -3,8 +3,13 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import type { LucideIcon } from 'lucide-react'
 import { BarChart3, Brain, Banknote, MessageCircle, Target, Landmark } from 'lucide-react'
-import { getDashboard } from '../api/endpoints'
-import type { DashboardData, IndexSnapshot } from '../api/endpoints'
+import { getDashboard, getOptionsMetrics, getOptionsChain } from '../api/endpoints'
+import type {
+  DashboardData,
+  IndexSnapshot,
+  OptionsMetrics,
+  OptionChainRow,
+} from '../api/endpoints'
 import { useFetch } from '../lib/useFetch'
 import {
   biasLabel,
@@ -54,6 +59,20 @@ export function DashboardPage() {
     { intervalMs: 30_000 },
   )
 
+  // Options metrics + chain are fetched per selected instrument from the
+  // dedicated endpoints so switching NIFTY ⇄ SENSEX always shows the right
+  // index. (The /dashboard aggregate only carries one index's options.)
+  const { data: optMetrics, loading: optLoading } = useFetch<OptionsMetrics>(
+    () => getOptionsMetrics(instrument),
+    [instrument],
+    { intervalMs: 30_000 },
+  )
+  const { data: optChain, loading: chainLoading } = useFetch<OptionChainRow[]>(
+    () => getOptionsChain(instrument),
+    [instrument],
+    { intervalMs: 30_000 },
+  )
+
   const isSensex = instrument === 2
   const instrumentLabel = INSTRUMENTS.find((i) => i.id === instrument)?.label ?? 'NIFTY 50'
 
@@ -70,29 +89,30 @@ export function DashboardPage() {
   )
   const biasConfidence = selectedSignal?.confidence ?? data?.ai_bias?.confidence
   const summary = data?.ai_summary ?? data?.summary
-  // Options metrics: prefer a full options block, else derive from the focused index card.
-  const options = data?.options ?? {
+  // Options metrics for the selected instrument — fall back to the focused
+  // index card only until the dedicated fetch resolves.
+  const options = optMetrics ?? {
     pcr_oi: selected?.pcr_oi,
     max_pain: selected?.atm_strike,
     support: selected?.support,
     resistance: selected?.resistance,
   }
   const inst = data?.institutional
-  const chain = data?.option_chain ?? []
+  const chain = optChain ?? []
+  const atmStrike = optMetrics?.atm_strike ?? selected?.atm_strike
   const updatedAt = data?.as_of ?? data?.generated_at ?? data?.updated_at
 
   // Filter to 5 strikes nearest ATM (2 below, ATM, 2 above) = 10 rows with CE+PE.
   const atmChain = useMemo(() => {
-    const atm = selected?.atm_strike ?? data?.nifty?.atm_strike
-    if (!atm || chain.length === 0) return chain
+    if (!atmStrike || chain.length === 0) return chain
     const uniqueStrikes = [...new Set(chain.map((r) => r.strike))].sort(
-      (a, b) => Math.abs(a - atm) - Math.abs(b - atm),
+      (a, b) => Math.abs(a - atmStrike) - Math.abs(b - atmStrike),
     )
     const nearSet = new Set(uniqueStrikes.slice(0, 5))
     return chain
       .filter((r) => nearSet.has(r.strike))
       .sort((a, b) => a.strike - b.strike || (a.type === 'PE' ? -1 : 1))
-  }, [chain, selected?.atm_strike, data?.nifty?.atm_strike])
+  }, [chain, atmStrike])
 
   return (
     <div>
@@ -156,7 +176,7 @@ export function DashboardPage() {
         <div className="space-y-6 lg:col-span-2">
           <Panel>
             <PanelHeader title="Option Chain" subtitle="Top strikes around spot" icon={<BarChart3 size={16} />} />
-            {loading ? (
+            {chainLoading && chain.length === 0 ? (
               <div className="space-y-2 p-5">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <Skeleton key={i} className="h-8 w-full" />
@@ -167,10 +187,7 @@ export function DashboardPage() {
                 No option chain data available.
               </p>
             ) : (
-              <OptionChainTable
-                rows={atmChain}
-                atmStrike={selected?.atm_strike ?? data?.nifty?.atm_strike ?? data?.options?.atm_strike}
-              />
+              <OptionChainTable rows={atmChain} atmStrike={atmStrike} />
             )}
           </Panel>
 
@@ -201,14 +218,14 @@ export function DashboardPage() {
           <Panel>
             <PanelHeader title="Options Metrics" icon={<Target size={16} />} />
             <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-b-xl bg-slate-100">
-              <Stat label="PCR (OI)" value={formatNumber(options?.pcr_oi)} loading={loading} />
-              <Stat label="Max Pain" value={formatNumber(options?.max_pain, 0)} loading={loading} />
-              <Stat label="Support" value={formatNumber(options?.support, 0)} loading={loading} />
-              <Stat label="Resistance" value={formatNumber(options?.resistance, 0)} loading={loading} />
+              <Stat label="PCR (OI)" value={formatNumber(options?.pcr_oi)} loading={optLoading} />
+              <Stat label="Max Pain" value={formatNumber(options?.max_pain, 0)} loading={optLoading} />
+              <Stat label="Support" value={formatNumber(options?.support, 0)} loading={optLoading} />
+              <Stat label="Resistance" value={formatNumber(options?.resistance, 0)} loading={optLoading} />
               <Stat
                 label="Writing Posture"
                 value={options?.writing_posture ?? '—'}
-                loading={loading}
+                loading={optLoading}
                 wide
               />
             </dl>

@@ -27,11 +27,15 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 })
 
 // --- Response: transparent refresh-and-retry on 401 ----------------------------
-// A single shared promise prevents a stampede of refresh calls when several
-// requests fail with 401 at the same time.
+// Refresh tokens are SINGLE-USE — the backend revokes the old one and issues a
+// new pair on every /auth/refresh. So two concurrent refreshes with the same
+// token would race: the first rotates it, the second gets a 401. A single
+// shared in-flight promise guarantees concurrent callers (multiple 401s, the
+// boot-time session restore, React StrictMode's double-invoked effects) all
+// await ONE rotation instead of racing.
 let refreshPromise: Promise<string> | null = null
 
-async function refreshAccessToken(): Promise<string> {
+async function doRefresh(): Promise<string> {
   const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
   if (!refreshToken) throw new Error('No refresh token available')
 
@@ -48,6 +52,19 @@ async function refreshAccessToken(): Promise<string> {
   return data.access_token
 }
 
+/**
+ * Single-flight refresh. Concurrent callers share one in-flight rotation; the
+ * promise is cleared once it settles so a later (genuinely new) refresh can run.
+ */
+export function refreshAccessTokenOnce(): Promise<string> {
+  if (!refreshPromise) {
+    refreshPromise = doRefresh().finally(() => {
+      refreshPromise = null
+    })
+  }
+  return refreshPromise
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
@@ -60,13 +77,10 @@ api.interceptors.response.use(
     if (status === 401 && original && !original._retry && !isAuthEndpoint) {
       original._retry = true
       try {
-        if (!refreshPromise) refreshPromise = refreshAccessToken()
-        const newToken = await refreshPromise
-        refreshPromise = null
+        const newToken = await refreshAccessTokenOnce()
         original.headers.Authorization = `Bearer ${newToken}`
         return api(original)
       } catch (refreshError) {
-        refreshPromise = null
         useAuthStore.getState().clear()
         if (
           typeof window !== 'undefined' &&
