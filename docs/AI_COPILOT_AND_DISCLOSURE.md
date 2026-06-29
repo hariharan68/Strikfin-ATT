@@ -19,8 +19,6 @@ Before every LLM call (or rule-based fallback), the backend assembles a context 
   "pcr_oi":            1.18,               # computed by options_math.pcr_oi()
   "support":           24200.0,            # computed by options_math.oi_walls()
   "resistance":        24500.0,
-  "regime":            "Trend Up",         # from regime engine (rule-based-v1.0)
-  "regime_confidence": 0.72,
   "ai_bias":           "Bullish",          # from synthesizer engine (synthesizer-v1.1)
   "ai_confidence":     0.68,
   "ai_reasoning":      "**Bullish** bias | confidence 68% | ...",
@@ -75,11 +73,10 @@ Uses a **rule-based structured fallback** — no external API call, no cost, no 
 
 | Question keywords | Response type |
 |---|---|
-| `bullish`, `bearish`, `bias`, `direction`, `outlook` | Bias + regime + PCR snapshot |
+| `bullish`, `bearish`, `bias`, `direction`, `outlook`, `trend` | AI bias + confidence + PCR snapshot |
 | `support`, `resistance`, `level`, `zone`, `wall` | OI-derived support/resistance with disclaimer |
 | `pcr`, `put call`, `put-call`, `ratio` | PCR value with interpretation |
 | `vix`, `volatility`, `fear` | VIX level with high/normal/low read |
-| `regime`, `trend`, `sideways`, `breakout` | Regime label + confidence + reasoning |
 | `news`, `headline`, `sentiment`, `macro` | Recent headlines list |
 | (anything else) | Full market snapshot |
 
@@ -148,13 +145,13 @@ The `entry_ref`, `stop_ref`, and `target_ref` fields in AI signals are computed 
 
 ### Audit Trail
 
-Every copilot question and every signal generation is traceable via the `audit_logs` table and the `ai_trade_signals` append-only table. Model versions (`rule-based-v1.0`, `synthesizer-v1.1`) are persisted with each record for reproducibility.
+Every copilot question and every signal generation is traceable via the `audit_logs` table and the `ai_trade_signals` append-only table. The model version (`synthesizer-v1.1`) is persisted with each record for reproducibility.
 
 ---
 
 ## Explicit Statement
 
-All outputs from Strikfin — regime classifications, smart-money signals, FII interpretations, sentiment scores, AI bias signals, illustrative risk levels, and copilot answers — are **market intelligence for informational purposes only**.
+All outputs from Strikfin — AI bias signals, smart-money signals, FII interpretations, sentiment scores, illustrative risk levels, and copilot answers — are **market intelligence for informational purposes only**.
 
 They are **NOT** investment advice, research reports, or trading recommendations under SEBI (Research Analysts) Regulations, 2014. Users must consult a SEBI-registered Research Analyst or Investment Adviser before making any trading or investment decisions.
 

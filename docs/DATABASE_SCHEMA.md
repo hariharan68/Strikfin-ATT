@@ -193,21 +193,12 @@ Scored sentiment result for each analysis run.
 
 ---
 
-### `market_regime`
+### `market_regime` — **removed**
 
-Append-only record of every regime classification run.
-
-| Column | Type | Nullable | Default | Notes |
-|---|---|---|---|---|
-| `id` | BIGINT | No | autoincrement PK | |
-| `instrument_id` | SMALLINT | No | — | FK → `instruments.instrument_id` |
-| `as_of` | DATETIME | No | — | Classification timestamp |
-| `regime` | SMALLINT | No | — | 1–7 (see ENGINES.md) |
-| `confidence` | DECIMAL(6,4) | No | — | 0–1, floor at 0.35 |
-| `model_version` | VARCHAR(30) | No | — | e.g. `rule-based-v1.0` |
-| `features` | TEXT | Yes | NULL | JSON evidence dict from classifier |
-
-**Indexes:** `ix_regime_asof` on (`instrument_id`, `as_of`)
+> The standalone regime classifier (engine, service, router, and this table) has
+> been removed. Bias classification now lives in the `synthesizer` engine and is
+> persisted to `ai_trade_signals` (below). The ORM no longer defines this table;
+> a legacy database may still contain it as an orphaned, unused table.
 
 ---
 
@@ -251,6 +242,27 @@ Append-only synthesized AI bias signal per run.
 | `model_version` | VARCHAR(30) | No | — | e.g. `synthesizer-v1.1` |
 
 **Indexes:** `ix_ai_signals_asof` on (`instrument_id`, `as_of`)
+
+---
+
+### `signal_outcomes`
+
+One row per scored AI signal (1:1 with `ai_trade_signals` via a unique `signal_id`). Written and updated by the background scorer loop / `outcome` engine; read by `/signals/{id}/accuracy`.
+
+| Column | Type | Nullable | Default | Notes |
+|---|---|---|---|---|
+| `id` | BIGINT | No | autoincrement PK | |
+| `signal_id` | BIGINT | No | — | **Unique** FK → `ai_trade_signals.id` |
+| `instrument_id` | SMALLINT | No | — | FK → `instruments.instrument_id` |
+| `bias` | SMALLINT | No | — | `1` / `0` / `-1` (copied from the signal) |
+| `status` | VARCHAR(12) | No | — | `OPEN` · `WIN` · `LOSS` · `EXPIRED` · `NEUTRAL` |
+| `realized_r` | DECIMAL(8,3) | Yes | NULL | Realised R-multiple once settled |
+| `exit_price` | DECIMAL(12,2) | Yes | NULL | Price at hit/expiry |
+| `bars_held` | INTEGER | Yes | NULL | Snapshots from issue to settle |
+| `signal_as_of` | DATETIME | No | — | Timestamp of the source signal |
+| `evaluated_at` | DATETIME | No | now | Last re-score time |
+
+**Indexes:** `ix_outcome_lookup` on (`instrument_id`, `status`), `ix_outcome_signal` on (`signal_id`)
 
 ---
 
@@ -352,13 +364,6 @@ erDiagram
         datetime as_of
         decimal score
     }
-    market_regime {
-        bigint id PK
-        smallint instrument_id FK
-        datetime as_of
-        smallint regime
-        decimal confidence
-    }
     smart_money_signals {
         bigint id PK
         smallint instrument_id FK
@@ -380,9 +385,9 @@ erDiagram
     instruments ||--o{ index_live_data : "has"
     instruments ||--o{ option_chain_snapshots : "has"
     instruments ||--o{ market_sentiment : "scored for"
-    instruments ||--o{ market_regime : "classified as"
     instruments ||--o{ smart_money_signals : "detected on"
     instruments ||--o{ ai_trade_signals : "synthesized for"
+    ai_trade_signals ||--o{ signal_outcomes : "scored by"
     option_chain_snapshots ||--o{ option_chain_rows : "contains"
 ```
 
@@ -401,9 +406,9 @@ erDiagram
 | `institutional_activity` | Append-only (unique constraint prevents exact duplicates) |
 | `news_feed` | **Append-only** (dedup_hash prevents duplicate headlines) |
 | `market_sentiment` | **Append-only** |
-| `market_regime` | **Append-only** |
 | `smart_money_signals` | **Append-only** |
 | `ai_trade_signals` | **Append-only** |
+| `signal_outcomes` | Mutable — updated as a signal is re-scored, then settled (`status` OPEN→WIN/LOSS/EXPIRED/NEUTRAL) |
 | `audit_logs` | **Append-only** |
 
 ---

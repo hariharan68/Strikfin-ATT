@@ -139,62 +139,51 @@ Uses Wilder-style smoothing (exponential moving average with factor `1/n`). Retu
 
 ---
 
-## 2. Regime Classifier (`engines/regime.py`)
+### `black76_price` · `greeks` · `implied_vol` — Black-76 option model
 
-### Input: `RegimeFeatures` dataclass
+Fyers does not return IV or greeks, so they are recovered locally:
 
-| Field | Type | Description |
-|---|---|---|
-| `return_1d` | `float` | Today's % return |
-| `return_5d` | `float` | 5-day % return |
-| `trend_strength` | `float` | ADX-style score 0–100 |
-| `range_compression` | `float` | Today range / 20d ATR (< 0.7 = compressed) |
-| `india_vix` | `Optional[float]` | Current India VIX |
-| `vix_percentile` | `float` | VIX position in 52-week range, 0–1 |
-| `realized_vol_pct` | `float` | Today realized vol percentile |
-| `pcr_oi` | `float` | Put-Call ratio (OI) |
-| `oi_buildup` | `str` | `LONG_BUILDUP` / `SHORT_BUILDUP` / `SHORT_COVERING` / `LONG_UNWINDING` |
-| `writing_posture` | `str` | `CALL_WRITERS_DOMINANT` / `PUT_WRITERS_DOMINANT` / `BALANCED` |
-| `spot_vs_max_pain` | `float` | `(spot − max_pain) / spot` |
-| `fii_cash_net_cr` | `Optional[float]` | FII net cash (₹ crore) |
-| `fii_fut_bias` | `str` | `LONG` / `SHORT` / `NEUTRAL` |
-
-### 7 Regime States
-
-| Code | Label | Meaning |
-|---|---|---|
-| `1` | Trend Up | Sustained upward move with strength |
-| `2` | Trend Down | Sustained downward move with strength |
-| `3` | Sideways | Range-bound, low directional momentum |
-| `4` | Breakout | Price breaking compressed range |
-| `5` | Reversal | Momentum turning, OI unwinding |
-| `6` | High Volatility | VIX spike or range expansion |
-| `7` | Low Volatility | Compressed, calm, pre-event often |
-
-### Scoring Algorithm
-
-Weighted evidence vote. Each signal adds score to one or more regime buckets. Winner = highest score. Confidence = `winner_score / max_possible` (max_possible = `13.0`), with a floor of `0.35`.
-
-| Signal Group | Max Weight | Conditions |
-|---|---|---|
-| **Volatility** | 3.0 | VIX percentile > 0.80 → +3.0 to regime 6; < 0.20 → +2.0 to regime 7 |
-| **Range** | 1.5 | range_compression < 0.65 → +1.5 to regime 7; > 1.5 → +1.5 to regime 6 |
-| **Trend** | 2.5 | ADX > 30 + 1d & 5d both positive → +2.5 to regime 1; both negative → +2.5 to regime 2; ADX < 20 → +1.5 to regime 3 |
-| **OI Build-up** | 2.0 | LONG_BUILDUP → +2.0 to 1; SHORT_BUILDUP → +2.0 to 2; LONG_UNWINDING → +1.0 to 5 + 0.5 to 2; SHORT_COVERING → +0.5 to 5 + 1.0 to 1 |
-| **Writing Posture** | 1.0 | PUT_WRITERS_DOMINANT → +1.0 to 1; CALL_WRITERS_DOMINANT → +1.0 to 2 |
-| **Breakout** | 2.5 | range_compression < 0.70 AND \|return_1d\| > 0.80% AND buildup in (LONG/SHORT_BUILDUP) → +2.5 to 4 |
-| **FII Cash** | 0.5 | fii_cash_net_cr > 2000 → +0.5 to 1; < −2000 → +0.5 to 2 |
-| **FII Futures** | 0.5 | LONG bias → +0.5 to 1; SHORT bias → +0.5 to 2 |
-
-**Total max possible: 13.0**
+- `black76_price(opt_type, forward, strike, t_years, sigma)` — Black-76 (futures-style) option price.
+- `implied_vol(opt_type, premium, forward, strike, t_years)` — Newton/bisection solve for IV (%) from the traded premium. Returns `None` for un-solvable inputs (e.g. zero premium / past expiry).
+- `greeks(opt_type, forward, strike, t_years, sigma)` — `delta`, `gamma`, `theta`, `vega` from the same model.
 
 ---
 
-## 3. AI Signal Synthesizer (`engines/synthesizer.py`)
+### `net_gex` · `gamma_flip_strike` · `gex_label` — Gamma Exposure
+
+```
+net_gex(rows, spot, lot_size)  → Σ (gamma × OI × lot × spot² × 0.01),
+                                  signed +CE / −PE  (₹ crore)
+gamma_flip_strike(rows, spot)  → strike where cumulative dealer gamma flips sign
+gex_label(gex)                 → "Positive (stabilising)" / "Negative (amplifying)"
+```
+
+Net GEX > 0 implies dealers are long gamma (mean-reverting / pinning); < 0 implies short gamma (trend-amplifying). Powers the Advanced Dashboard's Net GEX / Zero-Gamma Flip tiles.
+
+---
+
+### `true_range` · `atr` · `realized_vol` — Volatility from OHLC candles
+
+- `true_range(high, low, prev_close)` — classic true range.
+- `atr(candles, period=20)` — Average True Range over daily candles (powers the synthesizer's illustrative stop/target). Returns `None` with insufficient history.
+- `realized_vol(candles, period=20)` — annualised close-to-close realised volatility (%).
+
+These consume the candles returned by `providers.get_history(...)`.
+
+---
+
+## 2. AI Signal Synthesizer (`engines/synthesizer.py`)
+
+Fuses the options, smart-money, institutional, and sentiment modules into a single bias. **Pure function — no regime input** (the earlier standalone regime engine was removed; the synthesizer is now the single bias authority behind `/signals/{id}/latest`).
 
 ### Input: `SignalInputs` dataclass
 
-Accepts outputs from all other modules (regime, options, smart money, FII, sentiment) plus current spot and ATR estimate.
+| Group | Fields |
+|---|---|
+| Options | `pcr_oi`, `writing_posture`, `oi_buildup`, `spot`, `support`, `resistance`, `max_pain`, `atr_20` |
+| Smart Money | `smart_money_bias` (1/0/−1), `smart_money_confidence` (0–1) |
+| Institutional | `fii_net_cr`, `fii_fut_bias` (LONG/SHORT/NEUTRAL) |
+| Sentiment | `sentiment_score` (−1..1), `sentiment_confidence` (0–1) |
 
 ### Output: `SynthesizedSignal` dataclass
 
@@ -205,46 +194,36 @@ Accepts outputs from all other modules (regime, options, smart money, FII, senti
 | `stop_ref` | `Optional[float]` | Illustrative — formula below |
 | `target_ref` | `Optional[float]` | Illustrative — formula below |
 | `risk_reward` | `Optional[float]` | `\|target − entry\| / \|entry − stop\|` |
-| `confidence` | `float` | Clamped to [0.30, 0.95] |
-| `reasoning` | `str` | Plain-English markdown string |
+| `confidence` | `float` | `max(min(\|normalised\|, 0.95), 0.30)` |
+| `reasoning` | `str` | Plain-English markdown string (top-4 evidence) |
 | `evidence` | `dict` | Per-module evidence strings |
 
 ### Weighted Vote
 
 ```
-bias_score = 0.0
-
-Regime (weight 3.0):
-  TREND_UP   → +3.0 × regime_confidence
-  TREND_DOWN → −3.0 × regime_confidence
-  BREAKOUT   → ±2.4 × regime_confidence (direction from oi_buildup)
-  REVERSAL   → ±1.5 × regime_confidence
-  HIGH_VOL   → 0 (neutral)
-  SIDEWAYS / LOW_VOL → 0 (neutral)
+bias_score  = 0.0
+weight_used = 0.0
 
 OI Build-up (weight 2.5):
   LONG_BUILDUP    → +2.5
   SHORT_BUILDUP   → −2.5
-  SHORT_COVERING  → +1.5  (0.6 × 2.5)
+  SHORT_COVERING  → +1.5   (0.6 × 2.5)
   LONG_UNWINDING  → −1.5
-
-Writing Posture addon:
-  PUT_WRITERS_DOMINANT  → +0.8
-  CALL_WRITERS_DOMINANT → −0.8
+  Writing posture addon:  PUT_WRITERS_DOMINANT +0.8 · CALL_WRITERS_DOMINANT −0.8
+  weight_used += 2.5
 
 Smart Money (weight 2.0):
   bias_score += smart_money_bias × 2.0 × smart_money_confidence
+  weight_used += 2.0
 
-FII Cash (weight up to 0.75 of 1.5):
-  fii_net_cr > 2000  → +0.75
-  fii_net_cr < −2000 → −0.75
-
-FII Futures (weight up to 0.75 of 1.5):
-  LONG  → +0.75
-  SHORT → −0.75
+FII (weight 1.5):
+  fii_net_cr > 2000  → +0.75   ;  < −2000 → −0.75   (cash, 0.5 × 1.5)
+  fii_fut_bias LONG  → +0.75   ;  SHORT  → −0.75     (futures, 0.5 × 1.5)
+  weight_used += 1.5
 
 Sentiment (weight 1.0):
   bias_score += sentiment_score × 1.0 × sentiment_confidence
+  weight_used += 1.0
 
 normalised = bias_score / weight_used
 
@@ -253,7 +232,7 @@ bias = Bullish  if normalised >  0.15
      = Neutral  otherwise
 ```
 
-**Total weight_used: 10.0**
+**Total weight_used: 7.0**
 
 ### Illustrative Risk Framework
 
@@ -277,7 +256,7 @@ These values are labeled `disclosure_mode = "intelligence"` and are **NOT invest
 
 ---
 
-## 4. Short Covering Detector (`engines/short_covering.py`)
+## 3. Short Covering Detector (`engines/short_covering.py`)
 
 Detects a classic Indian market short covering rally pattern: market opens bearish → sells off → reverses post-noon as call-short sellers exit.
 
@@ -313,7 +292,7 @@ near_support    = |ltp − support_level| / ltp ≤ 0.006
 
 ---
 
-## 5. Sentiment Scorer (`api/v1/routers/sentiment.py`)
+## 4. Sentiment Scorer (`api/v1/routers/sentiment.py`)
 
 The sentiment scorer is inline in the router (no separate engine module). It is architecturally equivalent to an engine — pure computation over the incoming headlines list.
 
@@ -355,7 +334,7 @@ This is deterministic — the same headline always gets the same score. Producti
 
 ---
 
-## 6. Smart Money Detector (`api/v1/routers/smart_money.py`)
+## 5. Smart Money Detector (`api/v1/routers/smart_money.py`)
 
 Inline in the router. Per-strike signal detection.
 
@@ -388,3 +367,13 @@ Neutral  otherwise
 
 confidence = max(bull_score, bear_score) / total
 ```
+
+---
+
+## 6. Signal Outcome Evaluator (`engines/outcome.py`)
+
+Scores whether a past AI signal "worked", used by the background scorer loop and the `/signals/{id}/accuracy` endpoint.
+
+`evaluate_path(bias, entry, stop, target, path)` walks the realised price path after a signal was issued and returns an `OutcomeResult` — which of stop/target was hit first and the realised **R-multiple** (`realised_R = realised_move / initial_risk`, signed by `bias`). Signals that hit neither within the evaluation horizon settle as `EXPIRED` at the last observed price.
+
+This is the only place "was the call right?" is computed; the synthesizer itself never sees outcomes (no look-ahead).

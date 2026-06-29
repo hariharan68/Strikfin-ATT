@@ -3,6 +3,13 @@
 .env.*
 !.env.example
 
+# Python / uv
+.venv/
+venv/
+__pycache__/
+*.pyc
+# Note: uv.lock IS committed (reproducible installs) — do not ignore it.
+
 # IDE
 .vscode/
 .idea/

@@ -4,9 +4,11 @@ app/main.py
 Strikfin — FastAPI application entry point.
 Wires together all routers, middleware, lifespan, and error handlers.
 
-Run with:
+Run with (from the backend/ folder):
     cd backend
-    uvicorn app.main:app --reload --port 8000
+    uv run app.py            # preferred (uv-managed Python 3.11 env)
+    # or, equivalently:
+    uv run uvicorn app.main:app --reload --port 8000
 """
 import logging
 from contextlib import asynccontextmanager
@@ -36,6 +38,10 @@ logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
 )
+# Keep the console clean: silence chatty third-party loggers regardless of DEBUG.
+# (SQL echo is controlled separately via settings.SQL_ECHO.)
+for _noisy in ("urllib3", "httpx", "httpcore", "sqlalchemy.engine"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
@@ -49,12 +55,7 @@ async def lifespan(app: FastAPI):
     Startup: create DB tables + seed instruments.
     Shutdown: dispose DB engine cleanly.
     """
-    logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    logger.info("  Strikfin — starting up")
-    logger.info(f"  ENV    : {settings.APP_ENV}")
-    logger.info(f"  VENDOR : {settings.MARKET_DATA_VENDOR}")
-    logger.info(f"  LLM    : {settings.LLM_PROVIDER}")
-    logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION} ...")
 
     # Auto-create tables in development
     # Production uses Alembic migrations instead
@@ -80,9 +81,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"  Background jobs not started: {e}")
 
-    logger.info("✓ Strikfin is ready")
-    logger.info("  Docs : http://localhost:8000/api/docs")
-    logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    from app.core.banner import print_startup_banner
+    print_startup_banner()
 
     yield
 
@@ -150,7 +150,7 @@ def create_app() -> FastAPI:
             "NOT investment advice. "
             "AI usage disclosed per SEBI guidelines."
         ),
-        version="1.0.0",
+        version=settings.APP_VERSION,
         docs_url="/api/docs",
         redoc_url="/api/redoc",
         openapi_url="/api/openapi.json",

@@ -21,8 +21,12 @@ class Settings(BaseSettings):
 
     # ── Application ───────────────────────────────────────────
     APP_NAME: str = "Strikfin"
+    APP_VERSION: str = "1.0.0"
     APP_ENV: Literal["development", "production"] = "development"
     DEBUG: bool = False
+    # SQL echo is decoupled from DEBUG so app-level debug logs don't drown the
+    # console in raw SQL. Set SQL_ECHO=true in .env to log every statement.
+    SQL_ECHO: bool = False
 
     # ── Auth ──────────────────────────────────────────────────
     SECRET_KEY: str

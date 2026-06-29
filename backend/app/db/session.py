@@ -15,7 +15,7 @@ from app.core.config import settings
 # ── Engine ────────────────────────────────────────────────────
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,       # logs all SQL in development
+    echo=settings.SQL_ECHO,    # set SQL_ECHO=true in .env to log all SQL
     pool_pre_ping=True,        # recycles dead connections silently
     pool_size=5,
     max_overflow=10,

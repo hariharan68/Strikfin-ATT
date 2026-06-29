@@ -1,0 +1,60 @@
+[project]
+name = "strikfin-backend"
+version = "0.1.0"
+description = "Strikfin — FastAPI options-analytics backend"
+# Pinned to 3.11 on purpose: asyncpg / the broker SDK do not build on 3.14,
+# and uv will refuse to use any interpreter outside this range.
+requires-python = ">=3.11,<3.12"
+
+dependencies = [
+    # ─── Web Framework ───
+    "fastapi==0.115.5",
+    "uvicorn[standard]==0.32.1",
+    "python-multipart==0.0.12",
+
+    # ─── Database (PostgreSQL) ───
+    "sqlalchemy==2.0.36",
+    "asyncpg==0.30.0",
+    "alembic==1.14.0",
+
+    # ─── Cache (optional Redis hot cache; in-process fallback if unset) ───
+    "redis==5.2.1",
+
+    # ─── Auth & Security ───
+    "python-jose[cryptography]==3.3.0",
+    "bcrypt==5.0.0",
+
+    # ─── Config & Validation ───
+    "pydantic==2.10.3",
+    "pydantic-settings==2.6.1",
+    "python-dotenv==1.0.1",
+    "email-validator==2.2.0",
+
+    # ─── Async HTTP ───
+    "httpx==0.28.0",
+
+    # ─── AI / LLM (optional) ───
+    "openai==1.58.1",
+    "anthropic==0.40.0",
+
+    # ─── Logging & CLI output ───
+    "structlog==24.4.0",
+    "rich>=13.0.0",
+
+    # ─── Market Data / Broker (Fyers API v3) ───
+    "fyers-apiv3==3.1.13",
+]
+
+[dependency-groups]
+# Dev/test deps — installed by `uv sync`, excluded with `uv sync --no-dev`.
+dev = [
+    "pytest==8.3.4",
+    "pytest-asyncio==0.24.0",
+]
+
+[tool.uv]
+# Keep the project itself out of the dependency set (it's an app, not a library).
+package = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

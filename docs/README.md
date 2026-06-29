@@ -1,6 +1,6 @@
 # Strikfin
 
-Strikfin is an institutional-grade market intelligence terminal for India's benchmark indices — NIFTY 50 and SENSEX — that fuses options open-interest analytics, regime classification, smart-money signal detection, FII/DII flow interpretation, news sentiment scoring, and an AI-grounded copilot into a single, real-time dashboard. All outputs carry a mandatory SEBI-aligned disclosure label; the platform is explicitly positioned as market intelligence, not investment advice.
+Strikfin is an institutional-grade market intelligence terminal for India's benchmark indices — NIFTY 50 and SENSEX — that fuses options open-interest analytics, an Options Lab (intraday OI build-up, multi-strike OI & volume, gamma exposure), a multi-factor AI bias signal with outcome scoring, smart-money signal detection, FII/DII flow interpretation, news sentiment scoring, and an AI-grounded copilot into a single, real-time dashboard. All outputs carry a mandatory SEBI-aligned disclosure label; the platform is explicitly positioned as market intelligence, not investment advice.
 
 ---
 
@@ -10,6 +10,7 @@ Strikfin is an institutional-grade market intelligence terminal for India's benc
 |---|---|
 | **Backend framework** | FastAPI 0.115.5 + Uvicorn 0.32.1 |
 | **Database** | PostgreSQL 16+ (user/password auth) |
+| **Cache** | Resilient facade — in-process by default, optional Redis (`redis-py`) with fail-fast + circuit-breaker fallback |
 | **ORM** | SQLAlchemy 2.0 async + asyncpg |
 | **Migrations** | Alembic 1.14 |
 | **Auth** | JWT (python-jose) + bcrypt password hashing |
@@ -20,7 +21,8 @@ Strikfin is an institutional-grade market intelligence terminal for India's benc
 | **State management** | Zustand 5 |
 | **HTTP client** | Axios 1 |
 | **Styling** | Tailwind CSS 4 |
-| **Language** | TypeScript 6 (frontend) · Python 3.11+ (backend) |
+| **Language** | TypeScript 6 (frontend) · Python 3.11 (backend) |
+| **Backend tooling** | uv (dependency + Python-version management; pinned to 3.11) |
 
 ---
 
@@ -28,7 +30,7 @@ Strikfin is an institutional-grade market intelligence terminal for India's benc
 
 ### Prerequisites
 
-- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) (manages Python + dependencies; installs Python 3.11 for you)
 - Node.js 20+
 - PostgreSQL 16+ (any edition; the community server is fine)
 - A Postgres role/password and an empty database (e.g. `StrikfinDB`)
@@ -38,15 +40,13 @@ Strikfin is an institutional-grade market intelligence terminal for India's benc
 ```bash
 git clone <repo-url>
 cd "Strikfin (ATT)/backend"
-python -m venv venv
-source venv/Scripts/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+uv sync               # creates .venv with Python 3.11 and installs all locked deps
 ```
 
 ### 2. Configure environment
 
 ```bash
-cp .env.example .env   # or create .env manually — see ENVIRONMENT_VARIABLES.md
+cp .env.example .env   # in backend/ — or create it manually; see ENVIRONMENT_VARIABLES.md
 ```
 
 Minimum required `.env`:
@@ -65,16 +65,16 @@ LLM_PROVIDER=none
 ### 3. Run database migrations
 
 ```bash
-alembic upgrade head
+uv run alembic upgrade head
 ```
 
 ### 4. Start the backend
 
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run app.py        # prints the structured startup banner
 ```
 
-Interactive API docs: <http://localhost:8000/docs>
+Interactive API docs: <http://localhost:8000/api/docs>
 
 ### 5. Install & start the frontend
 
@@ -92,10 +92,10 @@ Frontend: <http://localhost:5173>
 
 ```
 Strikfin (ATT)/
-├── backend/
+├── backend/                    # run uv from here
 │   ├── app/
 │   │   ├── api/v1/routers/     # FastAPI endpoint handlers
-│   │   ├── core/               # Config, security, deps, exceptions
+│   │   ├── core/               # Config, security, deps, exceptions, banner
 │   │   ├── db/                 # SQLAlchemy models + session
 │   │   ├── domain/             # Pydantic request/response schemas
 │   │   ├── engines/            # Pure-Python computation engines
@@ -103,7 +103,9 @@ Strikfin (ATT)/
 │   │   └── services/           # Orchestration layer (provider → engine → DB)
 │   ├── tests/unit/engines/     # Unit tests for engine functions
 │   ├── alembic/                # Database migrations
-│   └── requirements.txt
+│   ├── app.py                  # Launcher — `uv run app.py`
+│   ├── pyproject.toml          # Dependencies + Python pin (uv)
+│   └── uv.lock                 # Locked dependency versions
 ├── frontend/
 │   └── src/
 │       ├── api/                # Typed API client + endpoint functions
@@ -126,6 +128,7 @@ Strikfin (ATT)/
 | [ENGINES.md](ENGINES.md) | Computation logic, formulas, weights, thresholds |
 | [AI_COPILOT_AND_DISCLOSURE.md](AI_COPILOT_AND_DISCLOSURE.md) | Copilot grounding, LLM abstraction, SEBI disclosure |
 | [SETUP.md](SETUP.md) | Step-by-step local setup, common errors |
+| [RUNNING.md](RUNNING.md) | Day-to-day run & command reference (uv) |
 | [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md) | Every env var, purpose, example value |
 | [TESTING.md](TESTING.md) | Test coverage, how to run tests, known gaps |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |

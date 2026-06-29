@@ -10,9 +10,11 @@ Case-insensitive. Extra variables in `.env` are silently ignored.
 
 | Variable | Default | Required | Sensitive | Purpose |
 |---|---|---|---|---|
-| `APP_NAME` | `Strikfin` | No | No | Display name (used in logs) |
-| `APP_ENV` | `development` | No | No | `development` or `production` |
-| `DEBUG` | `True` | No | No | Enables FastAPI debug mode and verbose errors |
+| `APP_NAME` | `Strikfin` | No | No | Display name (used in logs + health endpoint) |
+| `APP_VERSION` | `1.0.0` | No | No | Version string shown in the startup banner and OpenAPI |
+| `APP_ENV` | `development` | No | No | `development` (auto-creates tables + seeds instruments) or `production` (Alembic-managed) |
+| `DEBUG` | `False` | No | No | Enables verbose app logging |
+| `SQL_ECHO` | `False` | No | No | Logs every SQL statement. Decoupled from `DEBUG` so app debug logs don't drown in raw SQL |
 
 ---
 
@@ -60,6 +62,34 @@ Authentication uses a standard Postgres role + password (no Windows/ODBC). The a
 | `MARKET_DATA_VENDOR` | `mock` | No | No | `mock` (synthetic data) or `fyers` (live Fyers API) |
 
 `mock` is safe for all development and testing. `fyers` requires valid Fyers credentials and a daily OAuth token refresh.
+
+---
+
+## Cache (Redis-ready)
+
+| Variable | Default | Required | Sensitive | Purpose |
+|---|---|---|---|---|
+| `REDIS_URL` | `""` | No | No | Empty = built-in in-process TTL cache. Set (e.g. `redis://localhost:6379/0`) for a shared Redis hot cache across workers |
+| `CACHE_TTL_METRICS` | `30` | No | No | TTL (s) for `/options/{id}/metrics` |
+| `CACHE_TTL_CHAIN` | `30` | No | No | TTL (s) for `/options/{id}/chain` |
+| `CACHE_TTL_OI` | `30` | No | No | TTL (s) for Options Lab OI view + multi-strike series |
+
+Redis is **optional**. The cache facade fails fast and falls back to the
+in-process cache if Redis is unreachable, so a missing/down Redis never slows or
+breaks a request (see [ARCHITECTURE.md](ARCHITECTURE.md#caching-layer-appcorecachepy)).
+
+---
+
+## Background Ingestion & Signal Scoring
+
+| Variable | Default | Required | Sensitive | Purpose |
+|---|---|---|---|---|
+| `INGEST_ENABLED` | `True` | No | No | Master switch for the background ingestion + scoring loops |
+| `INGEST_INTERVAL_SECONDS` | `60` | No | No | Index snapshot cadence (option chain persists ~every 5 min) |
+| `INGEST_MARKET_HOURS_ONLY` | `True` | No | No | Skip nights/weekends (NSE/BSE cash hours, IST) |
+| `SCORER_INTERVAL_SECONDS` | `900` | No | No | Re-score open AI signals every N seconds |
+| `SIGNAL_EVAL_HORIZON_HOURS` | `6` | No | No | Hold horizon before a signal is settled/EXPIRED |
+| `SIGNAL_PERSIST_MIN_INTERVAL_MINUTES` | `5` | No | No | Dedupe: minimum gap between same-bias signal rows |
 
 ---
 

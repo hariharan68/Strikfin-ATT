@@ -25,7 +25,7 @@ Make sure the backend server is running at `http://localhost:8000`.
 
 ```bash
 cd backend
-uvicorn app.main:app --reload
+uv run app.py
 ```
 
 ### Step 2 — Get the Login URL

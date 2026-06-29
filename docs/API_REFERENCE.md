@@ -2,8 +2,9 @@
 
 Base URL: `http://localhost:8000/api/v1`
 
-Interactive Swagger UI: `http://localhost:8000/docs`
-ReDoc: `http://localhost:8000/redoc`
+Interactive Swagger UI: `http://localhost:8000/api/docs`
+ReDoc: `http://localhost:8000/api/redoc`
+OpenAPI JSON: `http://localhost:8000/api/openapi.json`
 
 This file documents the **business-logic nuances** that Swagger won't show — auth semantics, field interpretations, compliance notes, and edge cases.
 
@@ -125,9 +126,9 @@ Returns the current user's profile.
 
 **Auth required:** Yes
 
-One-shot composite snapshot — fetches NIFTY and SENSEX data concurrently, then runs regime and signal services sequentially (single DB session constraint).
+One-shot composite snapshot — builds the NIFTY and SENSEX index cards concurrently, then runs the signal service for each.
 
-**Business nuance:** The `option_chain` field in the response contains NIFTY's classified chain rows (not SENSEX's). The `options` field contains NIFTY's aggregated metrics. SENSEX raw chain data is not returned in this endpoint — use `/options/2/chain` for SENSEX chain.
+**Business nuance:** the aggregate now returns options + chain for **both** instruments. `nifty_options` / `sensex_options` hold the aggregated metrics and `nifty_option_chain` / `sensex_option_chain` hold the classified chain rows. The legacy `options` / `option_chain` fields are kept as NIFTY-defaulted aliases for backwards compatibility. For guaranteed instrument-aware data the dashboards use the dedicated `/options/{id}/metrics` and `/options/{id}/chain` endpoints.
 
 **Response `200`:**
 ```json
@@ -146,13 +147,15 @@ One-shot composite snapshot — fetches NIFTY and SENSEX data concurrently, then
     "pcr_oi": 1.18
   },
   "sensex": { "...": "same shape as nifty" },
-  "nifty_regime": { "...": "see /regime/{id}" },
-  "sensex_regime": { "...": "see /regime/{id}" },
   "nifty_signal": { "...": "see /signals/{id}/latest" },
   "sensex_signal": { "...": "see /signals/{id}/latest" },
-  "ai_summary": "NIFTY is in a **Trend Up** regime (72% confidence)...",
-  "option_chain": [ { "strike": 24350, "type": "CE", "oi": 1234567, "buildup": "Short Build-up", "..." : "..." } ],
-  "options": { "pcr_oi": 1.18, "max_pain": 24300.0, "writing_posture": "BALANCED" },
+  "ai_summary": "NIFTY AI bias: **Bullish** (68% confidence)...",
+  "nifty_options":  { "pcr_oi": 1.18, "max_pain": 24300.0, "support": 24200.0, "resistance": 24500.0, "writing_posture": "PUT_WRITERS_DOMINANT" },
+  "sensex_options": { "...": "same shape, SENSEX values" },
+  "nifty_option_chain":  [ { "strike": 24350, "type": "CE", "oi": 1234567, "buildup": "Short Build-up", "..." : "..." } ],
+  "sensex_option_chain": [ { "...": "SENSEX classified rows" } ],
+  "options": { "...": "alias of nifty_options (back-compat)" },
+  "option_chain": [ { "...": "alias of nifty_option_chain (back-compat)" } ],
   "disclaimer": "All outputs are AI-generated market intelligence for informational purposes only. NOT investment advice. AI usage disclosed per SEBI guidelines. Consult a SEBI-registered adviser before trading."
 }
 ```
@@ -167,7 +170,7 @@ One-shot composite snapshot — fetches NIFTY and SENSEX data concurrently, then
 
 **Auth required:** Yes
 
-Live index price data. In production this reads from Redis hot cache first.
+Live index price data (spot, OHLC, India VIX) for the instrument.
 
 **Response `200`** (`IndexSnapshot` schema):
 ```json
@@ -354,34 +357,60 @@ Full option chain with per-strike build-up classification.
 
 ---
 
-## Regime (`/regime`)
+## Options Lab (`/options-lab`)
 
-### `GET /regime/{instrument_id}`
+Powers the Options Lab → Open Interest and Multi OI & Volume tools. Both are cached (`CACHE_TTL_OI`).
+
+### `GET /options-lab/oi/{instrument_id}`
 
 **Auth required:** Yes
 
-7-state rule-based market regime classification. Every call **persists a new record** to `market_regime` — the table grows with each API call.
+Intraday Open-Interest build-up per strike: OI at the 09:15 open → OI now → the change between them, plus an OI-derived sentiment read and the per-snapshot Call/Put OI series for the interactive time-range slider.
 
-**Response `200`** (`RegimeRead` schema):
+**Data quality** (`data_quality` field):
+- `intraday` — ≥2 real snapshots exist today (true open→now build-up).
+- `live_proxy` — only one snapshot; the day-over-day `oi_change` is used to derive the open baseline.
+- `empty` — no chain data available.
+
+**Response `200`** (abbreviated):
 ```json
 {
-  "instrument_id": 1,
-  "as_of": "2026-06-20T09:31:00Z",
-  "regime": 1,
-  "regime_label": "Trend Up",
-  "confidence": 0.72,
-  "top_features": {
-    "vix": "VIX at 35% percentile → Low Volatility",
-    "trend": "ADX 32 | 1d +0.42% | 5d +1.26% → Trend Up",
-    "oi_buildup": "Long build-up → fresh longs corroborate Trend Up"
-  },
-  "model_version": "rule-based-v1.0"
+  "instrument_id": 1, "symbol": "NIFTY 50",
+  "spot": 24350.5, "atm_strike": 24350.0, "max_pain": 24300.0, "lot_size": 65,
+  "pcr_oi": 1.18, "pcr_change": 0.04,
+  "open_ts": "2026-06-29T03:45:00Z", "now_ts": "2026-06-29T07:28:00Z",
+  "data_quality": "intraday",
+  "total_call_oi": 45678900, "total_put_oi": 53901702,
+  "total_call_oi_chg": 1234000, "total_put_oi_chg": 2345000,
+  "sentiment": { "label": "Bullish", "bullish_pct": 70, "insight": "...", "analysis": "PCR at 1.18..." },
+  "strikes": [ { "strike": 24300, "call_oi_open": 898885, "call_oi_now": 1042860, "call_oi_chg": 143975, "call_oi_chg_pct": 16.0, "put_oi_open": 1, "put_oi_now": 1, "put_oi_chg": 0, "put_oi_chg_pct": 0.0 } ],
+  "series": [ { "t": "...", "call": [/* aligned to strikes */], "put": [ /* ... */ ] } ]
 }
 ```
 
-Regime codes: `1` Trend Up · `2` Trend Down · `3` Sideways · `4` Breakout · `5` Reversal · `6` High Volatility · `7` Low Volatility
+---
 
-Confidence has a floor of `0.35` — even low-signal environments return at least 35%.
+### `GET /options-lab/oi-series/{instrument_id}`
+
+**Auth required:** Yes
+
+Intraday **time-series** of OI / Volume / OI-change per strike, used by the Multi OI & Volume tool. Returns the selectable CE/PE contracts in a window around ATM, the "High OI" / "High Volume" default selections, and one entry per snapshot with the future price and aligned `oi`/`vol`/`chg` arrays.
+
+**Business nuance:** when only one real snapshot exists, the service synthesizes a 09:15 "open" point from the day-over-day OI change (`open_oi = now_oi − oi_change`), so the line chart always draws an open→now curve instead of a single floating point. `data_quality` still reports `live_proxy` in that case.
+
+**Response `200`** (abbreviated):
+```json
+{
+  "instrument_id": 1, "symbol": "NIFTY 50", "lot_size": 65,
+  "spot": 24350.5, "atm_strike": 24350.0, "trade_date": "2026-06-29",
+  "open_ts": "2026-06-29T03:45:00Z", "now_ts": "2026-06-29T07:28:00Z",
+  "data_quality": "live_proxy",
+  "contracts": [ { "id": "24000CE", "strike": 24000, "type": "CE" } ],
+  "default_ids": ["24000CE", "24100CE", "24200CE", "24000PE", "24500CE"],
+  "default_vol_ids": ["24000PE", "24100PE", "..."],
+  "series": [ { "t": "...", "fut": 24350.5, "oi": [/* aligned to contracts */], "vol": [/* ... */], "chg": [/* ... */] } ]
+}
+```
 
 ---
 
@@ -531,6 +560,26 @@ Synthesized AI bias signal. Fuses all intelligence modules via a weighted vote. 
 
 ---
 
+### `GET /signals/{instrument_id}/accuracy`
+
+**Auth required:** Yes
+
+Historical accuracy of past AI signals for the instrument, computed from the
+`signal_outcomes` table (settled signals scored by the background scorer loop via
+the `outcome` engine). Returns hit-rate and average realised R-multiple.
+
+---
+
+### `POST /signals/{instrument_id}/score`
+
+**Auth required:** Yes
+
+Manually triggers a re-scoring pass of open signals against the latest price
+(the same work the background scorer loop runs every `SCORER_INTERVAL_SECONDS`).
+Useful for testing or forcing an immediate evaluation.
+
+---
+
 ## Copilot (`/copilot`)
 
 ### `POST /copilot/ask`
@@ -556,11 +605,10 @@ AI-grounded market Q&A. Builds a live context object, then routes to the configu
 **Response `200`** (`CopilotResponse` schema):
 ```json
 {
-  "answer": "NIFTY50 is showing a **Bullish** bias with 68% confidence. Current regime: **Trend Up** (72%). PCR at 1.18. This is AI-generated market intelligence, not investment advice.",
+  "answer": "NIFTY50 is showing a **Bullish** bias with 68% confidence. PCR at 1.18. This is AI-generated market intelligence, not investment advice.",
   "sources": [
     "Live spot & options data",
-    "Regime engine (rule-based-v1.0)",
-    "AI signal synthesizer (synthesizer-v1.0)",
+    "AI signal synthesizer (synthesizer-v1.1)",
     "News sentiment feed"
   ],
   "confidence": 0.68,
@@ -641,22 +689,24 @@ Returns the raw Fyers option-chain API response for inspection. Development/debu
 
 ## Error Response Shape
 
-All errors follow a consistent structure:
+Domain errors (raised as `AppError`) and unhandled exceptions are returned under an `error` key by the app's exception handlers:
 
 ```json
 {
-  "detail": {
+  "error": {
     "code": "INVALID_TOKEN",
     "message": "Token has expired"
   }
 }
 ```
 
-| HTTP Status | When |
-|---|---|
-| `400 Bad Request` | Invalid request body (Pydantic validation failure) |
-| `401 Unauthorized` | Missing, expired, or invalid JWT |
-| `404 Not Found` | Resource not found |
-| `409 Conflict` | Duplicate email on register |
-| `422 Unprocessable Entity` | FastAPI schema validation error |
-| `500 Internal Server Error` | Unhandled exception |
+FastAPI's own request-validation failures (422) use the framework default `{"detail": [ ... ]}` shape instead.
+
+| HTTP Status | When | Shape |
+|---|---|---|
+| `400 Bad Request` | Domain validation failure | `{"error": {...}}` |
+| `401 Unauthorized` | Missing, expired, or invalid JWT / refresh token | `{"error": {...}}` |
+| `404 Not Found` | Resource not found | `{"error": {...}}` |
+| `409 Conflict` | Duplicate email on register | `{"error": {...}}` |
+| `422 Unprocessable Entity` | FastAPI schema/body validation error | `{"detail": [...]}` |
+| `500 Internal Server Error` | Unhandled exception | `{"error": {"code": "INTERNAL_ERROR", ...}}` |
