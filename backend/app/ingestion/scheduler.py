@@ -17,13 +17,14 @@ hours (IST) when INGEST_MARKET_HOURS_ONLY is set.
 """
 import asyncio
 import logging
-from datetime import date, datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 
-try:
-    from zoneinfo import ZoneInfo
-    _IST = ZoneInfo("Asia/Kolkata")
-except Exception:  # pragma: no cover — zoneinfo always present on 3.9+
-    _IST = timezone.utc
+# India Standard Time — fixed UTC+5:30 (India observes no DST). A fixed offset is
+# used rather than ZoneInfo("Asia/Kolkata") because the IANA tz database is not
+# bundled on Windows: ZoneInfo raises, and a UTC fallback silently shifts the
+# market-hours gate to 14:45–21:00 IST — no snapshots all morning. Mirrors
+# options_lab_service.py / dashboard.py.
+_IST = timezone(timedelta(hours=5, minutes=30))
 
 from app.core.config import settings
 from app.db.models import IndexLiveData
@@ -66,7 +67,7 @@ async def _snapshot_index() -> None:
                     continue
                 db.add(IndexLiveData(
                     instrument_id=iid,
-                    trade_date=date.today(),
+                    trade_date=datetime.now(_IST).date(),
                     snap_ts=datetime.now(timezone.utc),
                     last_price=ltp,
                     open_price=s.get("open_price"),

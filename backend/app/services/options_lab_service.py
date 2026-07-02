@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # bundled on Windows, where ZoneInfo would silently fail. Mirrors dashboard.py.
 _IST = timezone(timedelta(hours=5, minutes=30))
 
-from app.db.models import OptionChainRow, OptionChainSnapshot
+from app.db.models import IndexLiveData, OptionChainRow, OptionChainSnapshot
 from app.engines.options_math import (
     ChainRow,
     LOT_SIZE,
@@ -313,6 +313,147 @@ class OptionsLabService:
             "default_ids":   default_ids,
             "default_vol_ids": default_vol_ids,
             "series":        series,
+        }
+
+    async def get_price_oi_series(self, instrument_id: int) -> dict:
+        """
+        Future Lab → Price vs OI.
+
+        Intraday underlying price (dense, from `index_live_data`) plotted against
+        total option Open Interest (call + put, from `option_chain_snapshots`) for
+        the latest trading session. The two are returned as independent series on a
+        shared time axis — price on the left axis, OI on the right.
+
+        Degrades gracefully:
+          • intraday   — ≥2 real option snapshots today (true OI curve).
+          • live_proxy — <2 snapshots: a 2-point OI line (09:15 open → now) is
+            derived from the live chain's day-over-day OI change so the line still
+            renders alongside the (already dense) price line.
+          • empty      — no price or OI data at all.
+        """
+        # Anchor to the latest date that has dense price data (index_live_data);
+        # fall back to the latest option-snapshot date if no price history exists.
+        row = (
+            await self.db.execute(
+                select(IndexLiveData.trade_date)
+                .where(IndexLiveData.instrument_id == instrument_id)
+                .order_by(IndexLiveData.snap_ts.desc())
+                .limit(1)
+            )
+        ).first()
+        trade_date = row[0] if row else None
+        if trade_date is None:
+            latest_snap = await self._latest_session_snapshot(instrument_id)
+            trade_date = latest_snap.trade_date if latest_snap else None
+
+        if trade_date is None:
+            return self._empty_price_oi(instrument_id)
+
+        # ── Price series — every index_live_data point captured that session ──
+        il_rows = (
+            await self.db.execute(
+                select(IndexLiveData.snap_ts, IndexLiveData.last_price)
+                .where(
+                    IndexLiveData.instrument_id == instrument_id,
+                    IndexLiveData.trade_date == trade_date,
+                )
+                .order_by(IndexLiveData.snap_ts.asc())
+            )
+        ).all()
+        price_series = [
+            {"t": ts.replace(tzinfo=timezone.utc).isoformat(), "v": _f(px)}
+            for ts, px in il_rows
+        ]
+
+        # ── OI series — total (call + put) OI per option snapshot that session ──
+        oc_rows = (
+            await self.db.execute(
+                select(
+                    OptionChainSnapshot.snap_ts,
+                    OptionChainSnapshot.spot,
+                    OptionChainSnapshot.total_call_oi,
+                    OptionChainSnapshot.total_put_oi,
+                )
+                .where(
+                    OptionChainSnapshot.instrument_id == instrument_id,
+                    OptionChainSnapshot.trade_date == trade_date,
+                )
+                .order_by(OptionChainSnapshot.snap_ts.asc())
+            )
+        ).all()
+        oi_series = [
+            {
+                "t": ts.replace(tzinfo=timezone.utc).isoformat(),
+                "v": _i(call) + _i(put),
+            }
+            for ts, _spot, call, put in oc_rows
+        ]
+        real_oi_points = len(oi_series)
+
+        # Price fallback — if index_live_data is empty, use the snapshot spot.
+        if not price_series and oc_rows:
+            price_series = [
+                {"t": ts.replace(tzinfo=timezone.utc).isoformat(), "v": _f(spot)}
+                for ts, spot, _c, _p in oc_rows
+            ]
+
+        # OI fallback — derive a 2-point open→now line from one live chain so the
+        # OI curve renders even before a second real snapshot accrues.
+        if real_oi_points < 2:
+            try:
+                chain = get_option_chain(instrument_id)
+                rows = chain.get("rows", [])
+                total_now = sum(_i(r.get("oi")) for r in rows)
+                total_open = sum(_i(r.get("oi")) - _i(r.get("oi_change")) for r in rows)
+                if total_now > 0:
+                    oi_series = [
+                        {"t": self._market_open_iso(trade_date), "v": total_open},
+                        {"t": datetime.now(timezone.utc).isoformat(), "v": total_now},
+                    ]
+            except Exception:
+                logger.warning("price-oi live OI proxy failed", exc_info=True)
+
+        if not price_series and not oi_series:
+            return self._empty_price_oi(instrument_id)
+
+        quality = "intraday" if real_oi_points >= 2 else "live_proxy"
+
+        def _pct(series: list[dict]) -> float:
+            if len(series) < 2 or not series[0]["v"]:
+                return 0.0
+            return round((series[-1]["v"] - series[0]["v"]) / series[0]["v"] * 100, 3)
+
+        all_ts = [p["t"] for p in price_series] + [p["t"] for p in oi_series]
+
+        return {
+            "instrument_id":   instrument_id,
+            "symbol":          _SYMBOLS.get(instrument_id, "NIFTY 50"),
+            "trade_date":      trade_date.isoformat(),
+            "open_ts":         min(all_ts) if all_ts else None,
+            "now_ts":          max(all_ts) if all_ts else None,
+            "data_quality":    quality,
+            "price_last":      price_series[-1]["v"] if price_series else None,
+            "price_change_pct": _pct(price_series),
+            "oi_last":         oi_series[-1]["v"] if oi_series else None,
+            "oi_change_pct":   _pct(oi_series),
+            "price_series":    price_series,
+            "oi_series":       oi_series,
+        }
+
+    def _empty_price_oi(self, instrument_id: int) -> dict:
+        return {
+            "instrument_id":    instrument_id,
+            "symbol":           _SYMBOLS.get(instrument_id, "NIFTY 50"),
+            "trade_date":       datetime.now(_IST).date().isoformat(),
+            "open_ts":          None,
+            "now_ts":           None,
+            "data_quality":     "empty",
+            "price_last":       None,
+            "price_change_pct": 0.0,
+            "oi_last":          None,
+            "oi_change_pct":    0.0,
+            "price_series":     [],
+            "oi_series":        [],
         }
 
     # ─────────────────────────────────────────────────────────

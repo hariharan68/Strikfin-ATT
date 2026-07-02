@@ -26,6 +26,7 @@ from app.api.v1.routers.dashboard    import router as dashboard_router
 from app.api.v1.routers.index        import router as index_router
 from app.api.v1.routers.options      import router as options_router
 from app.api.v1.routers.options_lab  import router as options_lab_router
+from app.api.v1.routers.future_lab   import router as future_lab_router
 from app.api.v1.routers.signals      import router as signals_router
 from app.api.v1.routers.smart_money  import router as smart_money_router
 from app.api.v1.routers.institutional import router as institutional_router
@@ -191,6 +192,7 @@ def create_app() -> FastAPI:
     app.include_router(index_router,         prefix=PREFIX)
     app.include_router(options_router,       prefix=PREFIX)
     app.include_router(options_lab_router,   prefix=PREFIX)
+    app.include_router(future_lab_router,    prefix=PREFIX)
 
     app.include_router(signals_router,       prefix=PREFIX)
     app.include_router(smart_money_router,   prefix=PREFIX)

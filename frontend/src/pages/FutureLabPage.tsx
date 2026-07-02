@@ -1,6 +1,7 @@
 import { useSearchParams } from 'react-router-dom'
 import { Construction } from 'lucide-react'
 import { Panel } from '../components/ui/Panel'
+import { PriceVsOITool } from './future-lab/PriceVsOITool'
 
 // Slug → label map (mirrors the Future Lab mega-menu in the navbar).
 const FUTURE_LAB_LABELS: Record<string, string> = {
@@ -16,6 +17,9 @@ export function FutureLabPage() {
   const [params] = useSearchParams()
   const tool = params.get('tool') || 'future-dashboard'
   const label = FUTURE_LAB_LABELS[tool] ?? 'Future Lab'
+
+  // The first live Future Lab module.
+  if (tool === 'price-vs-oi') return <PriceVsOITool />
 
   return (
     <Panel>

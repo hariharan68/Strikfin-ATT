@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { LineChart, Check } from 'lucide-react'
+import { BarChart3, Check, Eye, EyeOff, Info, LineChart } from 'lucide-react'
 import { getOILabSeries, INSTRUMENTS } from '../../api/endpoints'
 import type { InstrumentId, OILabSeries } from '../../api/endpoints'
 import { useFetch } from '../../lib/useFetch'
@@ -11,6 +11,7 @@ import { ErrorBanner } from '../../components/ui/Page'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { MultiLineChart } from '../../components/options-lab/MultiLineChart'
 import type { LineSeries } from '../../components/options-lab/MultiLineChart'
+import { fmtOI } from '../../components/options-lab/OpenInterestChart'
 
 // Distinct line colors, assigned to selected contracts in order.
 const PALETTE = [
@@ -56,6 +57,12 @@ export function MultiOiVolumeTool() {
   const [selSource, setSelSource] = useState<'oi' | 'vol' | 'custom'>('oi')
   const [selected, setSelected] = useState<string[]>([])
   const [hidden, setHidden] = useState<Set<string>>(new Set())
+  // Legend eye-toggles: whole CALL/PUT totals in Call-vs-Put view and the
+  // dashed future overlay — independent per chart, like the reference UI.
+  const [hiddenCPOi, setHiddenCPOi] = useState<Set<string>>(new Set())
+  const [hiddenCPChg, setHiddenCPChg] = useState<Set<string>>(new Set())
+  const [futOnOi, setFutOnOi] = useState(true)
+  const [futOnChg, setFutOnChg] = useState(true)
   const [selectedExpiry, setSelectedExpiry] = useState(0)
   const [showCustom, setShowCustom] = useState(false)
 
@@ -113,6 +120,13 @@ export function MultiOiVolumeTool() {
   const times = useMemo(() => data?.series.map((p) => p.t) ?? [], [data])
   const future = useMemo(() => data?.series.map((p) => p.fut) ?? [], [data])
 
+  // Fixed x-axis over the full trading session (09:15–15:30 IST of the trade
+  // date) so the chart always shows market hours and the curve builds
+  // left-to-right as snapshots accrue — instead of stretching whatever slice
+  // of the day has data across the whole width.
+  const sessionStart = data?.trade_date ? `${data.trade_date}T09:15:00+05:30` : undefined
+  const sessionEnd = data?.trade_date ? `${data.trade_date}T15:30:00+05:30` : undefined
+
   // Build the line series for a metric, honoring Individual / Call vs Put.
   // `valuesFor` walks the series once per contract; Call-vs-Put sums those
   // pre-extracted arrays rather than re-extracting inside the time loop.
@@ -139,9 +153,10 @@ export function MultiOiVolumeTool() {
             return any ? acc : null
           })
         }
+        const lbl = m === 'oi' ? 'OI' : m === 'vol' ? 'Volume' : 'OI Change'
         return [
-          { key: 'CALL', label: 'Call', color: '#16a34a', values: sum('CE') },
-          { key: 'PUT', label: 'Put', color: '#ef4444', values: sum('PE') },
+          { key: 'CALL', label: `Total Call ${lbl}`, color: '#16a34a', values: sum('CE') },
+          { key: 'PUT', label: `Total Put ${lbl}`, color: '#ef4444', values: sum('PE') },
         ]
       }
 
@@ -154,8 +169,42 @@ export function MultiOiVolumeTool() {
     [data, selected, hidden, view, contractById, colorFor],
   )
 
-  const oiSeries = useMemo(() => buildSeries(metric), [buildSeries, metric])
-  const chgSeries = useMemo(() => buildSeries('chg'), [buildSeries])
+  const oiSeriesAll = useMemo(() => buildSeries(metric), [buildSeries, metric])
+  const chgSeriesAll = useMemo(() => buildSeries('chg'), [buildSeries])
+  // In Call-vs-Put view the legend can hide a whole CALL/PUT total without
+  // touching the per-strike chip selection — per chart.
+  const oiSeries = useMemo(
+    () => oiSeriesAll.filter((s) => view !== 'callput' || !hiddenCPOi.has(s.key)),
+    [oiSeriesAll, view, hiddenCPOi],
+  )
+  const chgSeries = useMemo(
+    () => chgSeriesAll.filter((s) => view !== 'callput' || !hiddenCPChg.has(s.key)),
+    [chgSeriesAll, view, hiddenCPChg],
+  )
+
+  const toggleIn = (set: React.Dispatch<React.SetStateAction<Set<string>>>) => (key: string) =>
+    set((prev) => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  const toggleCPOi = toggleIn(setHiddenCPOi)
+  const toggleCPChg = toggleIn(setHiddenCPChg)
+
+  // CALL/PUT totals at the latest snapshot across the whole strike window —
+  // powers the summary bar panels (mirrors the reference UI's bottom cards).
+  const totals = useMemo(() => {
+    if (!data || data.series.length === 0 || data.contracts.length === 0) return null
+    const last = data.series[data.series.length - 1]
+    let callOi = 0, putOi = 0, callChg = 0, putChg = 0
+    data.contracts.forEach((c, i) => {
+      const oi = last.oi[i] ?? 0
+      const chg = last.chg[i] ?? 0
+      if (c.type === 'CE') { callOi += oi; callChg += chg }
+      else { putOi += oi; putChg += chg }
+    })
+    return { callOi, putOi, callChg, putChg }
+  }, [data])
 
   const lotSize = data?.lot_size ?? 75
   const callList = data?.contracts.filter((c) => c.type === 'CE') ?? []
@@ -300,11 +349,18 @@ export function MultiOiVolumeTool() {
             <Skeleton className="h-[340px] w-full" />
           ) : (
             <>
-              <Legend series={oiSeries} hasFuture />
-              <MultiLineChart times={times} series={oiSeries} future={future} lotSize={lotSize} showLot={false} />
+              <Legend
+                series={oiSeriesAll}
+                isHidden={(k) => (view === 'callput' ? hiddenCPOi.has(k) : false)}
+                onToggle={view === 'callput' ? toggleCPOi : undefined}
+                futureOn={futOnOi}
+                onToggleFuture={() => setFutOnOi((v) => !v)}
+              />
+              <MultiLineChart times={times} series={oiSeries} future={future} lotSize={lotSize} showLot={false} showFuture={futOnOi} domainStart={sessionStart} domainEnd={sessionEnd} />
               <p className="mt-2 text-[11px] leading-snug text-slate-400">
-                Intraday {metric === 'oi' ? 'open interest' : 'volume'} per strike from {fmtClock(data.open_ts)} to {fmtClock(data.now_ts)}
-                {data.data_quality === 'live_proxy' && ' (single live snapshot — intraday curve builds as the session runs)'}.
+                Intraday {metric === 'oi' ? 'open interest' : 'volume'} per strike across the 9:15 am – 3:30 pm session
+                (data from {fmtClock(data.open_ts)} to {fmtClock(data.now_ts)})
+                {data.data_quality === 'live_proxy' && ' — single live snapshot; the curve builds as the session runs'}.
                 Dashed line is the future price. Drag to pan · scroll to zoom · double-click to reset.
               </p>
             </>
@@ -322,14 +378,44 @@ export function MultiOiVolumeTool() {
             <Skeleton className="h-[340px] w-full" />
           ) : (
             <>
-              <Legend series={chgSeries} hasFuture />
-              <MultiLineChart times={times} series={chgSeries} future={future} lotSize={lotSize} showLot={false} signed />
+              <Legend
+                series={chgSeriesAll}
+                isHidden={(k) => (view === 'callput' ? hiddenCPChg.has(k) : false)}
+                onToggle={view === 'callput' ? toggleCPChg : undefined}
+                futureOn={futOnChg}
+                onToggleFuture={() => setFutOnChg((v) => !v)}
+              />
+              <MultiLineChart times={times} series={chgSeries} future={future} lotSize={lotSize} showLot={false} signed showFuture={futOnChg} domainStart={sessionStart} domainEnd={sessionEnd} />
               <p className="mt-2 text-[11px] leading-snug text-slate-400">
                 Intraday OI change (vs the day's open) per strike. Rising = fresh writing, falling = unwinding.
               </p>
             </>
           )}
         </Panel>
+
+        {/* Section 3 — CALL vs PUT summary bars (whole strike window, latest snapshot) */}
+        {!loading && data && totals && (
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+            <Panel className="p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="flex items-center gap-2 text-base font-bold text-slate-800">
+                  <BarChart3 size={18} className="text-primary-600" /> Open Interest Change
+                  <span title="Day change in open interest, calls vs puts, summed across the strike window."><Info size={14} className="text-slate-400" /></span>
+                </h2>
+              </div>
+              <CallPutBars call={totals.callChg} put={totals.putChg} signed />
+            </Panel>
+            <Panel className="p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="flex items-center gap-2 text-base font-bold text-slate-800">
+                  <BarChart3 size={18} className="text-primary-600" /> Total Open Interest
+                  <span title="Outstanding open interest, calls vs puts, summed across the strike window."><Info size={14} className="text-slate-400" /></span>
+                </h2>
+              </div>
+              <CallPutBars call={totals.callOi} put={totals.putOi} />
+            </Panel>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -445,19 +531,87 @@ function Segmented({ options, value, onChange }: { options: { k: string; label: 
   )
 }
 
-function Legend({ series, hasFuture }: { series: LineSeries[]; hasFuture?: boolean }) {
+/**
+ * Interactive legend (StockMojo-style): each entry is an eye-toggle. The Future
+ * overlay always toggles; series entries toggle only when `onToggle` is given
+ * (Call-vs-Put view — Individual strikes are hidden via the sidebar chips).
+ */
+function Legend({
+  series,
+  isHidden,
+  onToggle,
+  futureOn,
+  onToggleFuture,
+}: {
+  series: LineSeries[]
+  isHidden: (key: string) => boolean
+  onToggle?: (key: string) => void
+  futureOn: boolean
+  onToggleFuture: () => void
+}) {
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-semibold">
-      {hasFuture && (
-        <span className="flex items-center gap-1.5 text-slate-500">
-          <span className="inline-block h-0.5 w-4 border-t-2 border-dashed border-slate-400" /> Future
-        </span>
-      )}
-      {series.map((s) => (
-        <span key={s.key} className="flex items-center gap-1.5 text-slate-600">
-          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: s.color }} /> {s.label}
-        </span>
-      ))}
+    <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs font-semibold">
+      <button
+        onClick={onToggleFuture}
+        className={cn('press flex items-center gap-1.5 rounded-md px-1.5 py-0.5', futureOn ? 'text-slate-500 hover:bg-slate-50' : 'text-slate-300 hover:bg-slate-50')}
+        title={futureOn ? 'Hide future price' : 'Show future price'}
+      >
+        {futureOn ? <Eye size={13} /> : <EyeOff size={13} />}
+        <span className="inline-block h-0.5 w-4 border-t-2 border-dashed border-slate-400" /> Future
+      </button>
+      {series.map((s) => {
+        const off = isHidden(s.key)
+        const body = (
+          <>
+            {onToggle && (off ? <EyeOff size={13} /> : <Eye size={13} />)}
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: off ? 'var(--color-slate-300)' : s.color }} /> {s.label}
+          </>
+        )
+        if (!onToggle) {
+          return (
+            <span key={s.key} className="flex items-center gap-1.5 px-1.5 py-0.5 text-slate-600">{body}</span>
+          )
+        }
+        return (
+          <button
+            key={s.key}
+            onClick={() => onToggle(s.key)}
+            className={cn('press flex items-center gap-1.5 rounded-md px-1.5 py-0.5 hover:bg-slate-50', off ? 'text-slate-300' : 'text-slate-600')}
+            title={off ? 'Click to show' : 'Click to hide'}
+          >
+            {body}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * Two-bar CALL vs PUT summary (green/red) with compact value labels, matching
+ * the reference UI's bottom cards. `signed` keeps the +/− prefix on labels for
+ * the OI-change card; bar heights use magnitudes so unwinding still shows.
+ */
+function CallPutBars({ call, put, signed }: { call: number; put: number; signed?: boolean }) {
+  const max = Math.max(Math.abs(call), Math.abs(put), 1)
+  const AREA = 180 // px reserved for label + bar
+  const fmt = (v: number) => (signed && v > 0 ? '+' : '') + fmtOI(v, false, 1)
+  const bar = (label: string, v: number, color: string) => (
+    <div className="flex flex-1 flex-col items-center">
+      <div className="flex w-full max-w-[150px] flex-col justify-end" style={{ height: AREA }}>
+        <div className="mb-1 text-center text-sm font-bold text-slate-700">{fmt(v)}</div>
+        <div
+          className="w-full rounded-t-md"
+          style={{ background: color, height: Math.max(6, (Math.abs(v) / max) * (AREA - 30)) }}
+        />
+      </div>
+      <div className="mt-2 w-full border-t border-slate-200 pt-2 text-center text-xs font-bold uppercase tracking-wide text-slate-500">{label}</div>
+    </div>
+  )
+  return (
+    <div className="flex items-end gap-6 px-4">
+      {bar('Call', call, '#22c55e')}
+      {bar('Put', put, '#f87171')}
     </div>
   )
 }

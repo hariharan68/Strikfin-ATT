@@ -76,7 +76,7 @@ export function OIChangeChart({ bars, mode, showOi, spot, atmStrike }: OIChangeC
     return { width, plotH, axisMax, yOf, groupX, groupCenter, spotX, ticks, atmIndex }
   }, [bars, mode, showOi, spot, atmStrike])
 
-  const { width, axisMax, yOf, groupX, groupCenter, spotX, ticks, atmIndex } = layout
+  const { width, yOf, groupX, groupCenter, spotX, ticks, atmIndex } = layout
   const baseY = PAD_TOP + (H - PAD_TOP - PAD_BOTTOM)
   const barW = (GROUP_W - 14) / 2
   const labelEvery = bars.length > 22 ? 2 : 1

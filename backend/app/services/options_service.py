@@ -215,6 +215,12 @@ class OptionsService:
             await self.db.flush()  # get snapshot_id before rows
 
             for r in classified_rows:
+                # The DB enforces `ck_ocr_iv`: iv IS NULL OR iv > 0. Fyers (and the
+                # Black-76 solver) yield iv = 0 for deep ITM/OTM strikes where IV is
+                # unrecoverable — writing that 0 would violate the constraint and
+                # reject the ENTIRE snapshot. Store NULL (= "no IV") instead.
+                _iv = r.get("iv")
+                iv_val = _iv if (_iv is not None and _iv > 0) else None
                 self.db.add(OptionChainRow(
                     snapshot_id=snapshot.snapshot_id,
                     trade_date=now.date(),
@@ -224,7 +230,7 @@ class OptionsService:
                     oi=r.get("oi"),
                     oi_change=r.get("oi_change"),
                     volume=r.get("volume"),
-                    iv=r.get("iv"),
+                    iv=iv_val,
                     delta=r.get("delta"),
                     theta=r.get("theta"),
                     vega=r.get("vega"),

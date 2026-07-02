@@ -638,6 +638,38 @@ export async function getFutures(id: InstrumentId): Promise<FuturesSnapshot> {
 }
 
 // ---------------------------------------------------------------------------
+// Future Lab — Price vs OI
+// ---------------------------------------------------------------------------
+/** One point of a Price-vs-OI series. `t` ISO timestamp, `v` the value. */
+export interface PriceOiPoint {
+  t: string
+  v: number
+}
+
+export interface PriceOiSeries {
+  instrument_id: number
+  symbol: string
+  trade_date: string
+  open_ts: string | null
+  now_ts: string | null
+  /** intraday = real OI snapshots; live_proxy = 2-point open→now OI; empty = no data. */
+  data_quality: 'intraday' | 'live_proxy' | 'empty'
+  price_last?: number
+  price_change_pct?: number
+  oi_last?: number
+  oi_change_pct?: number
+  /** Dense intraday underlying price (left axis). */
+  price_series: PriceOiPoint[]
+  /** Total call+put OI per snapshot (right axis). */
+  oi_series: PriceOiPoint[]
+}
+
+export async function getPriceOiSeries(id: InstrumentId): Promise<PriceOiSeries> {
+  const { data } = await api.get<PriceOiSeries>(`/future-lab/price-oi/${id}`)
+  return data
+}
+
+// ---------------------------------------------------------------------------
 // Short Covering Detection
 // ---------------------------------------------------------------------------
 export interface ShortCoveringFactor {

@@ -22,6 +22,16 @@ interface Props {
   showLot: boolean
   /** signed adds +/- and forces a 0 baseline (OI-change chart). */
   signed?: boolean
+  /** Hide the future overlay without collapsing its axis (legend eye toggle). */
+  showFuture?: boolean
+  /**
+   * Fixed x-axis domain (ISO timestamps), e.g. 09:15 → 15:30 IST of the trade
+   * date. When set, points are placed by *time* (not index) so the axis always
+   * covers the full session and the intraday curve builds left-to-right as
+   * snapshots accrue. Defaults to the data extent.
+   */
+  domainStart?: string
+  domainEnd?: string
   height?: number
 }
 
@@ -42,7 +52,17 @@ function fmtClock(iso: string): string {
   }).format(d)
 }
 
-const PRICE_FMT = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 })
+const PRICE_FMT_2 = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/**
+ * Format a price-axis tick with just enough decimals for the tick step.
+ * A near-flat future line (e.g. a 2-point proxy session) produces sub-1 steps;
+ * rounding those to integers printed the same label on several ticks.
+ */
+function fmtPriceTick(v: number, step: number): string {
+  const dec = step >= 1 ? 0 : step >= 0.1 ? 1 : 2
+  return new Intl.NumberFormat('en-IN', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(v)
+}
 
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v))
@@ -87,7 +107,7 @@ function useWidth(ref: React.RefObject<HTMLDivElement | null>): number {
  * window is held as fractions of the series so it survives live polling.
  * Dependency-free — no chart library is used anywhere in this repo.
  */
-export function MultiLineChart({ times, series, future, lotSize, showLot, signed, height = 360 }: Props) {
+export function MultiLineChart({ times, series, future, lotSize, showLot, signed, showFuture = true, domainStart, domainEnd, height = 360 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const W = useWidth(wrapRef)
@@ -98,26 +118,46 @@ export function MultiLineChart({ times, series, future, lotSize, showLot, signed
   const [view, setView] = useState({ s: 0, e: 1 })
   const drag = useRef<{ px: number; s: number; e: number } | null>(null)
 
-  const hasFuture = !!future && future.some((v) => v != null)
-  const PAD_LEFT = hasFuture ? 52 : 12
+  // Axis space is reserved whenever future data exists, so toggling the line
+  // off via the legend doesn't reflow the plot.
+  const futAvail = !!future && future.some((v) => v != null)
+  const hasFuture = futAvail && showFuture
+  const PAD_LEFT = futAvail ? 64 : 12
   const PAD_RIGHT = 66
 
   const plotW = Math.max(10, W - PAD_LEFT - PAD_RIGHT)
   const plotH = height - PAD_TOP - PAD_BOTTOM
   const n = times.length
 
+  // ── time-based x geometry ──────────────────────────────────────
+  // Each point's x-fraction comes from its timestamp within [t0, t1], so gaps
+  // in ingestion render as gaps in time — and a fixed session domain keeps the
+  // axis at 09:15 → 15:30 even when data covers only part of the day.
+  const tms = useMemo(() => times.map((t) => new Date(t).getTime()), [times])
+  const t0 = useMemo(() => {
+    const d = domainStart ? new Date(domainStart).getTime() : NaN
+    return Number.isFinite(d) ? d : (tms[0] ?? 0)
+  }, [domainStart, tms])
+  const t1 = useMemo(() => {
+    const d = domainEnd ? new Date(domainEnd).getTime() : NaN
+    return Number.isFinite(d) ? d : (tms[n - 1] ?? 1)
+  }, [domainEnd, tms, n])
+  const tSpan = Math.max(1, t1 - t0)
+  const fracs = useMemo(() => tms.map((t) => clamp((t - t0) / tSpan, 0, 1)), [tms, t0, tSpan])
+
   const spanF = Math.max(MIN_SPAN, view.e - view.s)
-  const fOf = (i: number) => (n > 1 ? i / (n - 1) : 0)
-  const xAt = (i: number) => PAD_LEFT + ((fOf(i) - view.s) / spanF) * plotW
+  const xAt = (i: number) => PAD_LEFT + (((fracs[i] ?? 0) - view.s) / spanF) * plotW
   const xToFrac = (px: number) => view.s + ((px - PAD_LEFT) / plotW) * spanF
 
   // Indices currently visible (with a one-point margin for line continuity).
   const [iStart, iEnd] = useMemo(() => {
     if (n <= 1) return [0, n - 1] as const
-    const a = clamp(Math.floor(view.s * (n - 1)), 0, n - 1)
-    const b = clamp(Math.ceil(view.e * (n - 1)), 0, n - 1)
-    return [a, b] as const
-  }, [view, n])
+    let a = 0
+    while (a < n - 1 && fracs[a + 1] < view.s) a++
+    let b = n - 1
+    while (b > 0 && fracs[b - 1] > view.e) b--
+    return [Math.min(a, b), Math.max(a, b)] as const
+  }, [view, n, fracs])
 
   // ── y-domain over the *visible* series only (auto-fit on zoom) ──
   const { yMin, yMax } = useMemo(() => {
@@ -176,30 +216,47 @@ export function MultiLineChart({ times, series, future, lotSize, showLot, signed
   const seriesD = useMemo(
     () => series.map((s) => linePath(s.values, yAt)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [series, view, W, height, yMin, yMax, iStart, iEnd, hasFuture],
+    [series, view, W, height, yMin, yMax, iStart, iEnd, hasFuture, fracs],
   )
   const futureD = useMemo(
     () => (hasFuture && futDomain ? linePath(future!, yFut) : ''),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [future, hasFuture, futDomain, view, W, height, iStart, iEnd],
+    [future, hasFuture, futDomain, view, W, height, iStart, iEnd, fracs],
   )
 
   const yTicks = useMemo(() => niceTicks(yMin, yMax, 5), [yMin, yMax])
   const futTicks = useMemo(() => (futDomain ? niceTicks(futDomain.lo, futDomain.hi, 5) : []), [futDomain])
+  const futStep = futTicks.length > 1 ? futTicks[1] - futTicks[0] : 1
+  // Latest visible future value — shown as a persistent pill on the price axis.
+  const futLast = useMemo(() => {
+    if (!hasFuture || !futDomain) return null
+    for (let i = iEnd; i >= 0; i--) {
+      const v = future![i]
+      if (v != null) return v
+    }
+    return null
+  }, [future, hasFuture, futDomain, iEnd])
 
-  // x-axis time labels across the visible window (about 7).
-  const xLabelIdx = useMemo(() => {
-    if (n <= 1) return [0]
-    const want = Math.min(7, iEnd - iStart + 1)
-    if (want <= 1) return [iStart]
-    const set = new Set<number>()
-    for (let k = 0; k < want; k++) set.add(iStart + Math.round((k / (want - 1)) * (iEnd - iStart)))
-    return [...set].sort((a, b) => a - b)
-  }, [n, iStart, iEnd])
+  // x-axis ticks at round clock times across the visible window (~7), derived
+  // from the time domain — not from data points — so the axis always spans the
+  // whole session even when snapshots cover only a slice of it.
+  const xTicks = useMemo(() => {
+    if (n === 0) return []
+    const tA = t0 + view.s * tSpan
+    const tB = t0 + view.e * tSpan
+    const target = (tB - tA) / 7
+    const steps = [1, 2, 5, 10, 15, 30, 60, 90, 120].map((m) => m * 60_000)
+    const step = steps.find((s) => s >= target) ?? steps[steps.length - 1]
+    const first = Math.ceil(tA / step) * step
+    const out: number[] = []
+    for (let t = first; t <= tB; t += step) out.push(t)
+    return out
+  }, [n, t0, tSpan, view])
+  const xOfTime = (t: number) => PAD_LEFT + (((t - t0) / tSpan - view.s) / spanF) * plotW
 
   // ── right-edge value badges (value at the right edge of the window) ──
   const badges = useMemo(() => {
-    const lastV = clamp(Math.round(view.e * (n - 1)), 0, n - 1)
+    const lastV = iEnd
     const raw = series
       .map((s) => {
         for (let i = lastV; i >= 0; i--) {
@@ -220,7 +277,7 @@ export function MultiLineChart({ times, series, future, lotSize, showLot, signed
     }
     return raw
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [series, yMin, yMax, plotH, showLot, lotSize, signed, view, n])
+  }, [series, yMin, yMax, plotH, showLot, lotSize, signed, view, n, iEnd])
 
   // ── interaction: pan (drag), zoom (wheel), reset (double-click) ──
   const pxFromClient = (clientX: number) => {
@@ -245,9 +302,15 @@ export function MultiLineChart({ times, series, future, lotSize, showLot, signed
       setView({ s, e: s + snapSpan })
       return
     }
-    const frac = (px - PAD_LEFT) / plotW
-    const fi = view.s + frac * spanF
-    setHover(clamp(Math.round(fi * (n - 1)), 0, n - 1))
+    // Snap the crosshair to the nearest point *in time* within the window.
+    const fi = xToFrac(px)
+    let best = 0
+    let bestD = Infinity
+    for (let i = 0; i < n; i++) {
+      const d = Math.abs(fracs[i] - fi)
+      if (d < bestD) { bestD = d; best = i }
+    }
+    setHover(best)
   }
 
   const endDrag = () => { drag.current = null }
@@ -318,7 +381,7 @@ export function MultiLineChart({ times, series, future, lotSize, showLot, signed
         {/* left Future price axis labels */}
         {futTicks.map((t) => (
           <text key={`f${t}`} x={PAD_LEFT - 6} y={yFut(t) + 3.5} fontSize={11} fill="var(--color-slate-400)" textAnchor="end">
-            {PRICE_FMT.format(t)}
+            {fmtPriceTick(t, futStep)}
           </text>
         ))}
 
@@ -327,19 +390,25 @@ export function MultiLineChart({ times, series, future, lotSize, showLot, signed
           <line x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={yAt(0)} y2={yAt(0)} stroke="var(--color-slate-300)" strokeWidth={1.25} strokeDasharray="2 2" />
         )}
 
-        {/* x-axis time labels (ends anchored so they don't clip) */}
-        {xLabelIdx.map((i, k) => (
-          <text
-            key={`x${i}`}
-            x={clamp(xAt(i), PAD_LEFT, PAD_LEFT + plotW)}
-            y={height - 12}
-            fontSize={11}
-            fill="var(--color-slate-400)"
-            textAnchor={k === 0 ? 'start' : k === xLabelIdx.length - 1 ? 'end' : 'middle'}
-          >
-            {fmtClock(times[i])}
-          </text>
-        ))}
+        {/* x-axis time labels + vertical gridlines at round clock times */}
+        {xTicks.map((t) => {
+          const x = xOfTime(t)
+          if (x < PAD_LEFT - 1 || x > PAD_LEFT + plotW + 1) return null
+          return (
+            <g key={`x${t}`}>
+              <line x1={x} x2={x} y1={PAD_TOP} y2={PAD_TOP + plotH} stroke="var(--color-slate-100)" strokeWidth={1} />
+              <text
+                x={x}
+                y={height - 12}
+                fontSize={11}
+                fill="var(--color-slate-400)"
+                textAnchor={x < PAD_LEFT + 24 ? 'start' : x > PAD_LEFT + plotW - 24 ? 'end' : 'middle'}
+              >
+                {fmtClock(new Date(t).toISOString())}
+              </text>
+            </g>
+          )
+        })}
 
         {/* plotted content (clipped to the plot rect) */}
         <g clipPath={`url(#${clipId})`}>
@@ -370,11 +439,19 @@ export function MultiLineChart({ times, series, future, lotSize, showLot, signed
           </g>
         ))}
 
+        {/* latest future price pill on the left axis (persistent, StockMojo-style) */}
+        {futLast != null && futDomain && (hover == null || dragging) && (
+          <g>
+            <rect x={2} y={clamp(yFut(futLast), PAD_TOP + 8, PAD_TOP + plotH - 8) - 8} width={PAD_LEFT - 6} height={16} rx={3} fill="var(--color-slate-500)" />
+            <text x={2 + (PAD_LEFT - 6) / 2} y={clamp(yFut(futLast), PAD_TOP + 8, PAD_TOP + plotH - 8) + 3.5} fontSize={9.5} fontWeight={700} fill="var(--color-slate-50)" textAnchor="middle">{PRICE_FMT_2.format(futLast)}</text>
+          </g>
+        )}
+
         {/* future value pill on the left axis (hover) */}
         {hover != null && !dragging && futHover != null && futDomain && (
           <g>
             <rect x={2} y={yFut(futHover) - 8} width={PAD_LEFT - 6} height={16} rx={3} fill="var(--color-slate-700)" />
-            <text x={2 + (PAD_LEFT - 6) / 2} y={yFut(futHover) + 3.5} fontSize={10} fontWeight={700} fill="var(--color-slate-50)" textAnchor="middle">{PRICE_FMT.format(futHover)}</text>
+            <text x={2 + (PAD_LEFT - 6) / 2} y={yFut(futHover) + 3.5} fontSize={9.5} fontWeight={700} fill="var(--color-slate-50)" textAnchor="middle">{PRICE_FMT_2.format(futHover)}</text>
           </g>
         )}
 
@@ -437,7 +514,7 @@ function Tooltip({
           <span className="flex items-center gap-1.5 text-slate-500">
             <span className="inline-block h-1.5 w-3 rounded-sm" style={{ background: FUT }} /> Future
           </span>
-          <span className="font-bold text-slate-800">{future.toFixed(1)}</span>
+          <span className="font-bold text-slate-800">{PRICE_FMT_2.format(future)}</span>
         </div>
       )}
       {rows.map((r) => (
