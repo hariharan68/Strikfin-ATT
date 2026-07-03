@@ -37,7 +37,7 @@ from app.engines.options_math import (
     max_pain,
     pcr_oi,
 )
-from app.ingestion.providers import get_option_chain, get_spot
+from app.ingestion.providers import get_futures, get_option_chain, get_spot
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +178,15 @@ class OptionsLabService:
 
         Degrades gracefully: a single snapshot yields a one-point series
         (``data_quality = "live_proxy"``); no data yields an empty series.
+
+        PRICE-OVERLAY CONVENTION (applies to ALL Multi OI & Volume charts — OI,
+        Volume, Call-vs-Put — and any future chart in this section): the ``fut``
+        price line is the tradable **current-month FUTURES** price, NOT the index
+        spot. Futures is the instrument traders actually deal and the one that
+        carries live volume. Persisted per snapshot as ``future_price`` (see
+        options_service); ``_fut_of`` falls back to spot only for rows captured
+        before that column existed. New price overlays here must use ``_fut_of``
+        / ``get_futures`` — do not reintroduce ``snap.spot`` for a price line.
         """
         snaps = await self._day_snapshots(instrument_id)
 
@@ -260,7 +269,7 @@ class OptionsLabService:
                 chg[i] = _i(r.get("oi_change"))
             series.append({
                 "t":   snap.snap_ts.replace(tzinfo=timezone.utc).isoformat(),
-                "fut": _f(snap.spot),
+                "fut": self._fut_of(snap),
                 "oi":  oi,
                 "vol": vol,
                 "chg": chg,
@@ -285,7 +294,7 @@ class OptionsLabService:
                     chg[i] = _i(r.get("oi_change"))
                 series.append({
                     "t":   self._market_close_dt(latest.trade_date).isoformat(),
-                    "fut": _f(close_snap.spot),
+                    "fut": self._fut_of(close_snap),
                     "oi":  oi,
                     "vol": vol,
                     "chg": chg,
@@ -741,7 +750,8 @@ class OptionsLabService:
         ranked_vol = sorted(contracts, key=lambda c: _i(idx[(c["strike"], c["type"])].get("volume")), reverse=True)
         now_ts = datetime.now(timezone.utc).isoformat()
         open_ts = self._market_open_iso(datetime.now(_IST).date())
-        now_point = {"t": now_ts, "fut": round(spot, 2), "oi": oi, "vol": vol, "chg": chg}
+        # Price overlay tracks the tradable current-month futures (not spot).
+        now_point = {"t": now_ts, "fut": self._live_fut(instrument_id, spot), "oi": oi, "vol": vol, "chg": chg}
         open_point = self._synth_open_point(now_point, open_ts)
 
         return {
@@ -882,6 +892,30 @@ class OptionsLabService:
             )
             for r in rows
         ]
+
+    @staticmethod
+    def _fut_of(snap) -> float:
+        """
+        Price-overlay value for a snapshot: the tradable current-month FUTURES
+        price captured with it (``future_price``), falling back to the index
+        ``spot`` only for rows saved before that column existed or when the
+        futures fetch failed. See the PRICE-OVERLAY CONVENTION in get_oi_series.
+        """
+        fp = getattr(snap, "future_price", None)
+        return _f(fp) if fp is not None else _f(snap.spot)
+
+    def _live_fut(self, instrument_id: int, spot: float) -> float:
+        """
+        Live current-month futures price for the no-DB-history proxy point.
+        Falls back to spot if the provider is on its mock/failed path.
+        """
+        try:
+            f = get_futures(instrument_id)
+            if f.get("source") != "mock_fallback" and (f.get("last_price") or 0) > 0:
+                return round(float(f["last_price"]), 2)
+        except Exception:
+            logger.warning("live futures fetch failed for OI series", exc_info=True)
+        return round(spot, 2)
 
     def _spot_for(self, instrument_id: int, now_rows: list[dict]) -> float:
         """Live spot; falls back to ATM-ish midpoint of strikes if unavailable."""

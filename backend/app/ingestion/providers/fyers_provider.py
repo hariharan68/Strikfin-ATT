@@ -209,21 +209,31 @@ def _mock_spot(instrument_id: int) -> dict:
 
 def _refresh_all_spots() -> None:
     """
-    Refresh every instrument's spot + India VIX in a SINGLE quotes() call, then
-    populate the cache (and last-good store) for each instrument.
+    Refresh every instrument's spot + India VIX + current-month FUTURES in a
+    SINGLE quotes() call, then populate the cache (and last-good store) for each.
+
+    Futures rides along in the same batched request so the tradable FUT price
+    (used by Options Lab price overlays) is captured without a separate call —
+    the same anti-429 batching the spot fix relies on. get_futures() reads the
+    ("futures", id) cache this fills, so it costs no extra Fyers hit on the hot
+    path (dashboard/persist call get_spot first, which triggers this refresh).
 
     Best-effort and never raises: on a live failure each instrument degrades to
     its last known LIVE value (so the price never jumps back to a stale mock),
     or to mock only if we have never had a live value.
     """
     live: dict[int, dict] = {}
+    futs: dict[int, dict] = {}
     vix: Optional[float] = None
     now_iso = datetime.now(timezone.utc).isoformat()
+    fut_symbols = {i: _near_month_futures_symbol(i) for i in _ALL_INSTRUMENTS}
 
     try:
         fyers   = _get_fyers()
         symbols = ",".join(
-            [_SPOT_SYMBOLS[i] for i in _ALL_INSTRUMENTS] + [_VIX_SYMBOL]
+            [_SPOT_SYMBOLS[i] for i in _ALL_INSTRUMENTS]
+            + [_VIX_SYMBOL]
+            + [fut_symbols[i] for i in _ALL_INSTRUMENTS]
         )
         data = fyers.quotes({"symbols": symbols})
 
@@ -237,30 +247,50 @@ def _refresh_all_spots() -> None:
 
         for iid in _ALL_INSTRUMENTS:
             q = by_symbol.get(_SPOT_SYMBOLS[iid])
-            if not q:
-                continue
-            ltp     = float(q.get("lp", 0))
-            prev    = float(q.get("prev_close_price", ltp) or ltp)
-            chg_pct = round((ltp - prev) / prev * 100, 3) if prev else 0.0
-            live[iid] = {
-                "instrument_id": iid,
-                "symbol":        _SYMBOLS.get(iid, "UNKNOWN"),
-                "last_price":    ltp,
-                "open_price":    float(q.get("open_price", 0)) or None,
-                "high_price":    float(q.get("high_price", 0)) or None,
-                "low_price":     float(q.get("low_price", 0)) or None,
-                "prev_close":    prev,
-                "change_pct":    chg_pct,
-                "volume":        int(q.get("volume", 0)) or None,
-                "india_vix":     vix,
-                "snap_ts":       now_iso,
-                "source":        "fyers",
-            }
+            if q:
+                ltp     = float(q.get("lp", 0))
+                prev    = float(q.get("prev_close_price", ltp) or ltp)
+                chg_pct = round((ltp - prev) / prev * 100, 3) if prev else 0.0
+                live[iid] = {
+                    "instrument_id": iid,
+                    "symbol":        _SYMBOLS.get(iid, "UNKNOWN"),
+                    "last_price":    ltp,
+                    "open_price":    float(q.get("open_price", 0)) or None,
+                    "high_price":    float(q.get("high_price", 0)) or None,
+                    "low_price":     float(q.get("low_price", 0)) or None,
+                    "prev_close":    prev,
+                    "change_pct":    chg_pct,
+                    "volume":        int(q.get("volume", 0)) or None,
+                    "india_vix":     vix,
+                    "snap_ts":       now_iso,
+                    "source":        "fyers",
+                }
+
+            fq = by_symbol.get(fut_symbols[iid])
+            if fq and float(fq.get("lp", 0) or 0) > 0:
+                fltp = float(fq.get("lp", 0))
+                fprev = float(fq.get("prev_close_price", fltp) or fltp)
+                futs[iid] = {
+                    "instrument_id":  iid,
+                    "symbol":         _SYMBOLS.get(iid, "UNKNOWN"),
+                    "futures_symbol": fut_symbols[iid],
+                    "last_price":     fltp,
+                    "prev_close":     fprev,
+                    "change":         round(fltp - fprev, 2),
+                    "change_pct":     round((fltp - fprev) / fprev * 100, 3) if fprev else 0.0,
+                    "volume":         int(fq.get("volume", 0) or 0),
+                    "open_price":     float(fq.get("open_price", 0)) or None,
+                    "high_price":     float(fq.get("high_price", 0)) or None,
+                    "low_price":      float(fq.get("low_price", 0)) or None,
+                    "snap_ts":        now_iso,
+                    "source":         "fyers",
+                }
 
         logger.info(
-            "Fyers batched spot: %s VIX=%s",
+            "Fyers batched spot: %s VIX=%s FUT=%s",
             {_SYMBOLS[i]: live[i]["last_price"] for i in live},
             vix,
+            {_SYMBOLS[i]: futs[i]["last_price"] for i in futs},
         )
 
     except Exception as e:
@@ -278,6 +308,17 @@ def _refresh_all_spots() -> None:
             _cache_put(("spot", iid), stale)
         else:
             _cache_put(("spot", iid), _mock_spot(iid))
+
+        # Pre-fill the futures cache so get_futures() hits it (no extra call).
+        # Only cache real values — never mock — so the snapshot's future_price
+        # stays NULL (→ spot fallback) rather than storing a fake futures price.
+        if iid in futs:
+            _LAST_GOOD[("futures", iid)] = futs[iid]
+            _cache_put(("futures", iid), futs[iid])
+        elif ("futures", iid) in _LAST_GOOD:
+            stale_f = dict(_LAST_GOOD[("futures", iid)])
+            stale_f["source"] = "fyers_cached"
+            _cache_put(("futures", iid), stale_f)
 
 
 # ─────────────────────────────────────────────────────────────

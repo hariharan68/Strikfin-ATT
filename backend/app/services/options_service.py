@@ -30,7 +30,7 @@ from app.engines.options_math import (
     gex_label,
     LOT_SIZE,
 )
-from app.ingestion.providers import get_option_chain, get_spot
+from app.ingestion.providers import get_futures, get_option_chain, get_spot
 
 _IV_HISTORY_MIN = 20  # minimum snapshots needed for real percentile
 
@@ -198,12 +198,26 @@ class OptionsService:
             except (ValueError, TypeError):
                 expiry_dt = now.date()
 
+            # Capture the tradable current-month FUTURES price alongside the
+            # snapshot so Options Lab price overlays plot the futures curve (not
+            # index spot). Guard against the provider's mock/failed fallback
+            # (mock futures returns last_price 0) — store NULL rather than a bad
+            # value, so the read side falls back to spot for that point.
+            future_price = None
+            try:
+                fut = get_futures(instrument_id)
+                if fut.get("source") != "mock_fallback" and (fut.get("last_price") or 0) > 0:
+                    future_price = fut["last_price"]
+            except Exception:
+                logger.warning("futures fetch for snapshot failed for instrument %s", instrument_id, exc_info=True)
+
             snapshot = OptionChainSnapshot(
                 instrument_id=instrument_id,
                 trade_date=now.date(),
                 expiry_date=expiry_dt,
                 snap_ts=now,
                 spot=spot,
+                future_price=future_price,
                 atm_strike=atm,
                 total_call_oi=total_call,
                 total_put_oi=total_put,

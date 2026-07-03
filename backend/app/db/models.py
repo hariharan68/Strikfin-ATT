@@ -134,6 +134,12 @@ class OptionChainSnapshot(Base):
     expiry_date:    Mapped[datetime]      = mapped_column(DATE, nullable=False)
     snap_ts:        Mapped[datetime]      = mapped_column(UTCDateTime, nullable=False)
     spot:           Mapped[float]         = mapped_column(DECIMAL(12, 2), nullable=False)
+    # Tradable current-month FUTURES price captured with this snapshot. Options
+    # Lab price overlays (Multi OI & Volume, etc.) plot the FUTURES price — the
+    # instrument traders actually deal — not the index spot. Nullable: rows
+    # captured before this column existed (or when the futures fetch failed)
+    # fall back to `spot` on read. See options_lab_service.get_oi_series.
+    future_price:   Mapped[Optional[float]] = mapped_column(DECIMAL(12, 2), nullable=True)
     atm_strike:     Mapped[float]         = mapped_column(DECIMAL(12, 2), nullable=False)
     total_call_oi:  Mapped[Optional[int]] = mapped_column(BIGINT, nullable=True)
     total_put_oi:   Mapped[Optional[int]] = mapped_column(BIGINT, nullable=True)
