@@ -291,10 +291,16 @@ class OptionsLabService:
                     "chg": chg,
                 })
 
-        # Quality reflects how many REAL snapshots exist; if only one, synthesize
-        # a 09:15 open point so the chart still draws a line (open → now).
+        # Quality reflects how many REAL snapshots exist.
         real_points = len(series)
-        if real_points == 1:
+        # If ingestion started after the open (backend booted mid-session), the
+        # series begins at the first snapshot and the morning is blank. The
+        # provider's oi_change is day-over-day, and OI at 09:15 equals the
+        # previous close OI, so open_oi = now_oi − oi_change reconstructs the
+        # true 09:15 baseline — prepend it so the chart spans the session.
+        if series and (
+            real_points == 1 or self._is_late_start(snaps[0].snap_ts, latest.trade_date)
+        ):
             series.insert(
                 0, self._synth_open_point(series[0], self._market_open_iso(latest.trade_date))
             )
@@ -464,6 +470,15 @@ class OptionsLabService:
         """15:30 IST on trade_date, as a tz-aware UTC datetime."""
         return datetime.combine(trade_date, _MARKET_CLOSE, tzinfo=_IST).astimezone(timezone.utc)
 
+    def _is_late_start(self, first_snap_ts: datetime, trade_date) -> bool:
+        """
+        True when the day's first snapshot landed well after the 09:15 open
+        (ingestion only runs while the backend is up, so a mid-session start
+        leaves the morning without snapshots). ``first_snap_ts`` is naive UTC.
+        """
+        grace = self._market_open_dt(trade_date).replace(tzinfo=None) + timedelta(minutes=5)
+        return first_snap_ts > grace
+
     def _in_session(self, snap_ts: datetime) -> bool:
         """
         True if a snapshot falls within NSE/BSE cash hours (Mon–Fri 09:15–15:30
@@ -595,23 +610,33 @@ class OptionsLabService:
             snap_ids.append(close_snap.snapshot_id)
         rows_by = await self._rows_by_snapshot(snap_ids)
 
-        def _point(snapshot_id: int, t_iso: str) -> dict:
+        def _point(snapshot_id: int, t_iso: str, as_open: bool = False) -> dict:
             call: list[int | None] = [None] * n
             put: list[int | None] = [None] * n
             for r in rows_by.get(snapshot_id, []):
                 i = axis.get(r["strike"])
                 if i is None:
                     continue
+                # as_open: reconstruct the 09:15 baseline from the day-over-day
+                # change (OI at open == previous close OI == oi − oi_change).
+                v = _i(r.get("oi")) - (_i(r.get("oi_change")) if as_open else 0)
                 if r["option_type"] == "CE":
-                    call[i] = _i(r.get("oi"))
+                    call[i] = v
                 else:
-                    put[i] = _i(r.get("oi"))
+                    put[i] = v
             return {"t": t_iso, "call": call, "put": put}
 
         out: list[dict] = [
             _point(snap.snapshot_id, snap.snap_ts.replace(tzinfo=timezone.utc).isoformat())
             for snap in snaps
         ]
+        # Late ingestion start → prepend the reconstructed 09:15 point so the
+        # slider covers the whole session, not just the ingested window.
+        if self._is_late_start(snaps[0].snap_ts, trade_date):
+            out.insert(
+                0,
+                _point(snaps[0].snapshot_id, self._market_open_iso(trade_date), as_open=True),
+            )
         if append_close:
             out.append(_point(close_snap.snapshot_id, self._market_close_dt(trade_date).isoformat()))
         return out
@@ -770,7 +795,18 @@ class OptionsLabService:
 
         if earliest is not None and earliest.snapshot_id != now_snap.snapshot_id:
             open_rows = await self._rows_for(earliest.snapshot_id)
-            open_ts = earliest.snap_ts.replace(tzinfo=timezone.utc).isoformat()
+            if self._is_late_start(earliest.snap_ts, latest.trade_date):
+                # Ingestion began mid-session — the earliest snapshot is NOT the
+                # day's open, so "change since open" would only cover the
+                # ingested window. Reconstruct the true 09:15 baseline from the
+                # day-over-day change (OI at open == previous close OI).
+                open_rows = [
+                    {**r, "oi": _i(r.get("oi")) - _i(r.get("oi_change")), "oi_change": 0}
+                    for r in open_rows
+                ]
+                open_ts = self._market_open_iso(latest.trade_date)
+            else:
+                open_ts = earliest.snap_ts.replace(tzinfo=timezone.utc).isoformat()
             return now_rows, open_rows, now_ts, open_ts, "intraday"
 
         # Only one post-open snapshot today → proxy from day-over-day oi_change.

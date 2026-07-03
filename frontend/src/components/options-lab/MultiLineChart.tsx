@@ -1,7 +1,31 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import * as echarts from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import {
+  DataZoomComponent,
+  GridComponent,
+  LegendComponent,
+  TooltipComponent,
+} from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+// The esm build — the lib/ (CJS) entry resolves to a module object under
+// Vite's dev-server interop and crashes React ("Element type is invalid").
+import EChartsReactCore from 'echarts-for-react/esm/core'
+import type EChartsReactCoreType from 'echarts-for-react/esm/core'
+import type { EChartsOption, SeriesOption } from 'echarts'
+import { useTheme } from '../../lib/useTheme'
 import { fmtOI } from './OpenInterestChart'
 
-// ── Types ──────────────────────────────────────────────────────────
+echarts.use([
+  LineChart,
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+  DataZoomComponent,
+  CanvasRenderer,
+])
+
+// ── Types (unchanged public contract) ──────────────────────────────
 export interface LineSeries {
   /** Stable key (contract id or "CALL"/"PUT"). */
   key: string
@@ -22,117 +46,89 @@ interface Props {
   showLot: boolean
   /** signed adds +/- and forces a 0 baseline (OI-change chart). */
   signed?: boolean
-  /** Hide the future overlay without collapsing its axis (legend eye toggle). */
+  /** Initial visibility of the future overlay (toggleable via the legend). */
   showFuture?: boolean
   /**
    * Fixed x-axis domain (ISO timestamps), e.g. 09:15 → 15:30 IST of the trade
-   * date. When set, points are placed by *time* (not index) so the axis always
-   * covers the full session and the intraday curve builds left-to-right as
-   * snapshots accrue. Defaults to the data extent.
+   * date. When set, the axis always covers the full session and the intraday
+   * curve builds left-to-right as snapshots accrue.
    */
   domainStart?: string
   domainEnd?: string
   height?: number
 }
 
-// Layout
-const PAD_TOP = 16
-const PAD_BOTTOM = 38
-const FUT = '#94a3b8' // slate-400 dashed future line (visible in both themes)
-const MIN_SPAN = 0.04 // smallest zoom window as a fraction of the series
+const FUTURE_ID = '__future__'
+const FUTURE_NAME = 'Future'
+const FUT_COLOR = '#94a3b8' // slate-400 — readable in every theme
+// Smallest zoom window: ~15 min of a 6h15m session (mirrors the old MIN_SPAN).
+const MIN_ZOOM_SPAN_MS = 15 * 60_000
 
-function fmtClock(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return new Intl.DateTimeFormat('en-IN', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-    timeZone: 'Asia/Kolkata',
-  }).format(d)
+const CLOCK_FMT = new Intl.DateTimeFormat('en-IN', {
+  hour: 'numeric',
+  minute: '2-digit',
+  hour12: true,
+  timeZone: 'Asia/Kolkata',
+})
+const PRICE_FMT_2 = new Intl.NumberFormat('en-IN', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
+function fmtClock(ts: number): string {
+  return Number.isFinite(ts) ? CLOCK_FMT.format(new Date(ts)) : ''
 }
-
-const PRICE_FMT_2 = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 /**
- * Format a price-axis tick with just enough decimals for the tick step.
- * A near-flat future line (e.g. a 2-point proxy session) produces sub-1 steps;
- * rounding those to integers printed the same label on several ticks.
+ * Resolve the app's themed CSS variables (remapped per theme on <html>) into
+ * concrete colors ECharts' canvas renderer can use.
  */
-function fmtPriceTick(v: number, step: number): string {
-  const dec = step >= 1 ? 0 : step >= 0.1 ? 1 : 2
-  return new Intl.NumberFormat('en-IN', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(v)
-}
-
-function clamp(v: number, lo: number, hi: number) {
-  return Math.max(lo, Math.min(hi, v))
-}
-
-function niceTicks(min: number, max: number, count = 5): number[] {
-  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
-    return [Number.isFinite(max) ? max : 0]
+function resolveThemeColors() {
+  const css = getComputedStyle(document.documentElement)
+  const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback
+  return {
+    cardBg: v('--color-slate-50', '#ffffff'),
+    grid: v('--color-slate-100', '#f1f5f9'),
+    axisLine: v('--color-slate-200', '#e2e8f0'),
+    axisLabel: v('--color-slate-400', '#94a3b8'),
+    zeroLine: v('--color-slate-300', '#cbd5e1'),
+    legendText: v('--color-slate-600', '#475569'),
+    legendInactive: v('--color-slate-300', '#cbd5e1'),
+    tooltipText: v('--color-slate-700', '#334155'),
+    pointerLabelBg: v('--color-slate-700', '#334155'),
+    pointerLabelText: v('--color-slate-50', '#f8fafc'),
   }
-  const span = max - min
-  const step0 = span / count
-  const pow = Math.pow(10, Math.floor(Math.log10(step0)))
-  const n = step0 / pow
-  const step = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * pow
-  const start = Math.ceil(min / step) * step
-  const out: number[] = []
-  for (let v = start; v <= max + step * 0.01; v += step) out.push(v)
-  return out
 }
 
-/** Track the wrapper's pixel width so the SVG renders 1 unit = 1px (no distortion). */
-function useWidth(ref: React.RefObject<HTMLDivElement | null>): number {
-  const [w, setW] = useState(900)
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const ro = new ResizeObserver((entries) => {
-      const cw = entries[0]?.contentRect.width
-      if (cw && cw > 0) setW(cw)
-    })
-    ro.observe(el)
-    if (el.clientWidth > 0) setW(el.clientWidth)
-    return () => ro.disconnect()
-  }, [ref])
-  return w
+/** [timestamp, value] pairs for a time axis; null values render as gaps. */
+function toPairs(tms: number[], values: (number | null)[]): [number, number | null][] {
+  return tms.map((t, i) => [t, values[i] ?? null])
 }
 
 /**
- * Responsive multi-line SVG chart with a dual axis (Future price left, OI/Volume
- * right), colored value badges, a hover crosshair + tooltip, and interactive
- * pan/zoom (drag to pan, scroll to zoom, double-click to reset). The visible
- * window is held as fractions of the series so it survives live polling.
- * Dependency-free — no chart library is used anywhere in this repo.
+ * Multi-line intraday chart on Apache ECharts with a dual axis (Future price
+ * left, OI/Volume right), shared crosshair tooltip, click-to-toggle legend,
+ * right-edge value pills, and pan/zoom (wheel + drag + slider; double-click
+ * or the overlay button resets). Live polls update the existing chart
+ * instance via setOption merge — the instance is never remounted.
  */
-export function MultiLineChart({ times, series, future, lotSize, showLot, signed, showFuture = true, domainStart, domainEnd, height = 360 }: Props) {
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const svgRef = useRef<SVGSVGElement>(null)
-  const W = useWidth(wrapRef)
-  const clipId = useId()
+export function MultiLineChart({
+  times,
+  series,
+  future,
+  lotSize,
+  showLot,
+  signed,
+  showFuture = true,
+  domainStart,
+  domainEnd,
+  height = 360,
+}: Props) {
+  const chartRef = useRef<EChartsReactCoreType>(null)
+  const { theme } = useTheme()
+  const [zoomed, setZoomed] = useState(false)
 
-  const [hover, setHover] = useState<number | null>(null)
-  // Visible window as [start, end] fractions in [0, 1]. {0,1} = whole session.
-  const [view, setView] = useState({ s: 0, e: 1 })
-  const drag = useRef<{ px: number; s: number; e: number } | null>(null)
-
-  // Axis space is reserved whenever future data exists, so toggling the line
-  // off via the legend doesn't reflow the plot.
-  const futAvail = !!future && future.some((v) => v != null)
-  const hasFuture = futAvail && showFuture
-  const PAD_LEFT = futAvail ? 64 : 12
-  const PAD_RIGHT = 66
-
-  const plotW = Math.max(10, W - PAD_LEFT - PAD_RIGHT)
-  const plotH = height - PAD_TOP - PAD_BOTTOM
   const n = times.length
-
-  // ── time-based x geometry ──────────────────────────────────────
-  // Each point's x-fraction comes from its timestamp within [t0, t1], so gaps
-  // in ingestion render as gaps in time — and a fixed session domain keeps the
-  // axis at 09:15 → 15:30 even when data covers only part of the day.
   const tms = useMemo(() => times.map((t) => new Date(t).getTime()), [times])
   const t0 = useMemo(() => {
     const d = domainStart ? new Date(domainStart).getTime() : NaN
@@ -142,389 +138,322 @@ export function MultiLineChart({ times, series, future, lotSize, showLot, signed
     const d = domainEnd ? new Date(domainEnd).getTime() : NaN
     return Number.isFinite(d) ? d : (tms[n - 1] ?? 1)
   }, [domainEnd, tms, n])
-  const tSpan = Math.max(1, t1 - t0)
-  const fracs = useMemo(() => tms.map((t) => clamp((t - t0) / tSpan, 0, 1)), [tms, t0, tSpan])
 
-  const spanF = Math.max(MIN_SPAN, view.e - view.s)
-  const xAt = (i: number) => PAD_LEFT + (((fracs[i] ?? 0) - view.s) / spanF) * plotW
-  const xToFrac = (px: number) => view.s + ((px - PAD_LEFT) / plotW) * spanF
-
-  // Indices currently visible (with a one-point margin for line continuity).
-  const [iStart, iEnd] = useMemo(() => {
-    if (n <= 1) return [0, n - 1] as const
-    let a = 0
-    while (a < n - 1 && fracs[a + 1] < view.s) a++
-    let b = n - 1
-    while (b > 0 && fracs[b - 1] > view.e) b--
-    return [Math.min(a, b), Math.max(a, b)] as const
-  }, [view, n, fracs])
-
-  // ── y-domain over the *visible* series only (auto-fit on zoom) ──
-  const { yMin, yMax } = useMemo(() => {
-    let lo = signed ? 0 : Infinity
-    let hi = signed ? 0 : -Infinity
-    for (const s of series) {
-      for (let i = iStart; i <= iEnd; i++) {
-        const v = s.values[i]
-        if (v == null) continue
-        if (v < lo) lo = v
-        if (v > hi) hi = v
-      }
-    }
-    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return { yMin: 0, yMax: 1 }
-    if (lo === hi) { hi = lo + 1; lo = signed ? Math.min(0, lo - 1) : lo - 1 }
-    const pad = (hi - lo) * 0.08
-    return { yMin: lo - pad, yMax: hi + pad }
-  }, [series, signed, iStart, iEnd])
-
-  const futDomain = useMemo(() => {
-    if (!hasFuture) return null
-    let lo = Infinity
-    let hi = -Infinity
-    for (let i = iStart; i <= iEnd; i++) {
-      const v = future![i]
-      if (v == null) continue
-      if (v < lo) lo = v
-      if (v > hi) hi = v
-    }
-    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null
-    if (lo === hi) { hi = lo + 1; lo -= 1 }
-    const pad = (hi - lo) * 0.12
-    return { lo: lo - pad, hi: hi + pad }
-  }, [future, hasFuture, iStart, iEnd])
-
-  const yAt = (v: number) => PAD_TOP + plotH - ((v - yMin) / (yMax - yMin || 1)) * plotH
-  const yFut = (v: number) =>
-    futDomain ? PAD_TOP + plotH - ((v - futDomain.lo) / (futDomain.hi - futDomain.lo || 1)) * plotH : 0
-
-  const linePath = (vals: (number | null)[], proj: (v: number) => number) => {
-    let d = ''
-    let pen = false
-    for (let i = Math.max(0, iStart - 1); i <= Math.min(n - 1, iEnd + 1); i++) {
-      const v = vals[i]
-      if (v == null) { pen = false; continue }
-      d += `${pen ? 'L' : 'M'}${xAt(i).toFixed(1)} ${proj(v).toFixed(1)} `
-      pen = true
-    }
-    return d.trim()
-  }
-
-  const fmtY = (v: number) => (signed && v > 0 ? '+' : '') + fmtOI(v, showLot, lotSize)
-
-  // Precompute path geometry once per data/zoom/size change so the frequent
-  // hover & drag re-renders only redraw the crosshair, not every line.
-  const seriesD = useMemo(
-    () => series.map((s) => linePath(s.values, yAt)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [series, view, W, height, yMin, yMax, iStart, iEnd, hasFuture, fracs],
-  )
-  const futureD = useMemo(
-    () => (hasFuture && futDomain ? linePath(future!, yFut) : ''),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [future, hasFuture, futDomain, view, W, height, iStart, iEnd, fracs],
+  const futAvail = !!future && future.some((v) => v != null)
+  const fmtY = useCallback(
+    (v: number) => (signed && v > 0 ? '+' : '') + fmtOI(v, showLot, lotSize),
+    [signed, showLot, lotSize],
   )
 
-  const yTicks = useMemo(() => niceTicks(yMin, yMax, 5), [yMin, yMax])
-  const futTicks = useMemo(() => (futDomain ? niceTicks(futDomain.lo, futDomain.hi, 5) : []), [futDomain])
-  const futStep = futTicks.length > 1 ? futTicks[1] - futTicks[0] : 1
-  // Latest visible future value — shown as a persistent pill on the price axis.
-  const futLast = useMemo(() => {
-    if (!hasFuture || !futDomain) return null
-    for (let i = iEnd; i >= 0; i--) {
-      const v = future![i]
-      if (v != null) return v
+  const buildOption = useCallback((): EChartsOption => {
+    const c = resolveThemeColors()
+    const fontFamily = getComputedStyle(document.body).fontFamily
+
+    const endLabelBase = {
+      show: true,
+      color: '#fff',
+      fontSize: 10,
+      fontWeight: 700 as const,
+      padding: [2, 5] as [number, number],
+      borderRadius: 3,
+      distance: 6,
     }
-    return null
-  }, [future, hasFuture, futDomain, iEnd])
 
-  // x-axis ticks at round clock times across the visible window (~7), derived
-  // from the time domain — not from data points — so the axis always spans the
-  // whole session even when snapshots cover only a slice of it.
-  const xTicks = useMemo(() => {
-    if (n === 0) return []
-    const tA = t0 + view.s * tSpan
-    const tB = t0 + view.e * tSpan
-    const target = (tB - tA) / 7
-    const steps = [1, 2, 5, 10, 15, 30, 60, 90, 120].map((m) => m * 60_000)
-    const step = steps.find((s) => s >= target) ?? steps[steps.length - 1]
-    const first = Math.ceil(tA / step) * step
-    const out: number[] = []
-    for (let t = first; t <= tB; t += step) out.push(t)
-    return out
-  }, [n, t0, tSpan, view])
-  const xOfTime = (t: number) => PAD_LEFT + (((t - t0) / tSpan - view.s) / spanF) * plotW
+    const dataSeries: SeriesOption[] = series.map((s) => ({
+      id: s.key,
+      name: s.label,
+      type: 'line',
+      yAxisIndex: 1,
+      data: toPairs(tms, s.values),
+      smooth: 0.25,
+      showSymbol: false,
+      connectNulls: false,
+      lineStyle: { width: 2, color: s.color },
+      itemStyle: { color: s.color },
+      emphasis: { lineStyle: { width: 2.5 } },
+      endLabel: {
+        ...endLabelBase,
+        backgroundColor: s.color,
+        formatter: (p) => {
+          const v = (p.value as [number, number | null])[1]
+          return v == null ? '' : fmtY(v)
+        },
+      },
+      labelLayout: { moveOverlap: 'shiftY' },
+      z: 3,
+    }))
 
-  // ── right-edge value badges (value at the right edge of the window) ──
-  const badges = useMemo(() => {
-    const lastV = iEnd
-    const raw = series
-      .map((s) => {
-        for (let i = lastV; i >= 0; i--) {
-          const v = s.values[i]
-          if (v != null) return { key: s.key, color: s.color, text: fmtY(v), y: yAt(v) }
-        }
-        return null
+    if (futAvail) {
+      dataSeries.push({
+        id: FUTURE_ID,
+        name: FUTURE_NAME,
+        type: 'line',
+        yAxisIndex: 0,
+        data: toPairs(tms, future!),
+        smooth: 0.25,
+        showSymbol: false,
+        connectNulls: false,
+        lineStyle: { width: 1.5, color: FUT_COLOR, type: [5, 3] },
+        itemStyle: { color: FUT_COLOR },
+        endLabel: {
+          ...endLabelBase,
+          backgroundColor: c.pointerLabelBg,
+          color: c.pointerLabelText,
+          formatter: (p) => {
+            const v = (p.value as [number, number | null])[1]
+            return v == null ? '' : PRICE_FMT_2.format(v)
+          },
+        },
+        labelLayout: { moveOverlap: 'shiftY' },
+        z: 2,
       })
-      .filter(Boolean) as { key: string; color: string; text: string; y: number }[]
-    raw.sort((a, b) => a.y - b.y)
-    const gap = 16
-    for (let i = 1; i < raw.length; i++) {
-      if (raw[i].y - raw[i - 1].y < gap) raw[i].y = raw[i - 1].y + gap
     }
-    const bottom = PAD_TOP + plotH
-    for (let i = raw.length - 1; i >= 0; i--) {
-      if (raw[i].y > bottom) raw[i].y = bottom - (raw.length - 1 - i) * gap
+
+    return {
+      animation: true,
+      animationDuration: 300,
+      animationDurationUpdate: 300,
+      backgroundColor: 'transparent',
+      textStyle: { fontFamily },
+      grid: {
+        left: futAvail ? 64 : 16,
+        right: 84,
+        top: 34,
+        bottom: 62,
+      },
+      legend: {
+        show: true,
+        type: 'scroll',
+        top: 0,
+        left: 0,
+        icon: 'circle',
+        itemWidth: 9,
+        itemHeight: 9,
+        itemGap: 14,
+        textStyle: { color: c.legendText, fontSize: 11, fontWeight: 600 },
+        inactiveColor: c.legendInactive,
+        pageIconColor: c.legendText,
+        pageIconInactiveColor: c.legendInactive,
+        pageTextStyle: { color: c.axisLabel },
+      },
+      tooltip: {
+        trigger: 'axis',
+        transitionDuration: 0.12,
+        backgroundColor: c.cardBg,
+        borderColor: c.axisLine,
+        borderWidth: 1,
+        padding: [8, 10],
+        textStyle: { color: c.tooltipText, fontSize: 12, fontFamily },
+        extraCssText: 'box-shadow: 0 8px 24px rgba(0,0,0,0.12); border-radius: 8px;',
+        axisPointer: {
+          type: 'cross',
+          lineStyle: { color: c.zeroLine, type: [3, 3] },
+          crossStyle: { color: c.zeroLine, type: [3, 3] },
+          label: {
+            backgroundColor: c.pointerLabelBg,
+            color: c.pointerLabelText,
+            fontSize: 10,
+            fontWeight: 600,
+            padding: [3, 6],
+            borderRadius: 3,
+            formatter: (p) => {
+              if (p.axisDimension === 'x') return fmtClock(Number(p.value))
+              // y axes: 0 = price, 1 = OI/volume
+              return p.axisIndex === 0
+                ? PRICE_FMT_2.format(Number(p.value))
+                : fmtY(Number(p.value))
+            },
+          },
+        },
+        formatter: (params) => {
+          const list = Array.isArray(params) ? params : [params]
+          if (list.length === 0) return ''
+          const ts = (list[0].value as [number, number | null])[0]
+          const row = (marker: string, label: string, value: string) =>
+            `<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;line-height:1.7">` +
+            `<span style="display:flex;align-items:center;gap:6px">${marker}${label}</span>` +
+            `<span style="font-weight:700">${value}</span></div>`
+          // Future first, then contract lines — mirrors the axis layout.
+          const sorted = [...list].sort(
+            (a, b) => (a.seriesId === FUTURE_ID ? -1 : 0) - (b.seriesId === FUTURE_ID ? -1 : 0),
+          )
+          const body = sorted
+            .map((p) => {
+              const v = (p.value as [number, number | null])[1]
+              const text =
+                v == null ? '—' : p.seriesId === FUTURE_ID ? PRICE_FMT_2.format(v) : fmtY(v)
+              return row(String(p.marker ?? ''), String(p.seriesName ?? ''), text)
+            })
+            .join('')
+          return `<div style="font-weight:600;margin-bottom:4px">${fmtClock(ts)}</div>${body}`
+        },
+      },
+      xAxis: {
+        type: 'time',
+        min: t0,
+        max: t1,
+        axisLine: { lineStyle: { color: c.axisLine } },
+        axisTick: { show: false },
+        axisLabel: {
+          color: c.axisLabel,
+          fontSize: 11,
+          hideOverlap: true,
+          formatter: (v: number) => fmtClock(v),
+        },
+        splitLine: { show: true, lineStyle: { color: c.grid } },
+      },
+      yAxis: [
+        {
+          // Future price — left
+          type: 'value',
+          show: futAvail,
+          position: 'left',
+          scale: true,
+          axisLabel: { color: c.axisLabel, fontSize: 11 },
+          splitLine: { show: false },
+        },
+        {
+          // OI / Volume — right
+          type: 'value',
+          position: 'right',
+          scale: !signed,
+          // signed (OI change) keeps the 0 baseline in view.
+          min: signed ? (v: { min: number }) => Math.min(0, v.min) : undefined,
+          max: signed ? (v: { max: number }) => Math.max(0, v.max) : undefined,
+          axisLabel: {
+            color: c.axisLabel,
+            fontSize: 11,
+            formatter: (v: number) => fmtY(v),
+          },
+          splitLine: { show: true, lineStyle: { color: c.grid } },
+        },
+      ],
+      dataZoom: [
+        {
+          type: 'inside',
+          xAxisIndex: 0,
+          filterMode: 'filter',
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true,
+          throttle: 50,
+          minValueSpan: MIN_ZOOM_SPAN_MS,
+        },
+        {
+          type: 'slider',
+          xAxisIndex: 0,
+          filterMode: 'filter',
+          height: 20,
+          bottom: 8,
+          brushSelect: false,
+          borderColor: c.axisLine,
+          backgroundColor: 'transparent',
+          fillerColor: 'rgba(148, 163, 184, 0.15)',
+          dataBackground: {
+            lineStyle: { color: c.zeroLine },
+            areaStyle: { color: c.grid },
+          },
+          selectedDataBackground: {
+            lineStyle: { color: c.axisLabel },
+            areaStyle: { color: c.grid },
+          },
+          handleStyle: { color: c.axisLabel, borderColor: c.axisLine },
+          moveHandleStyle: { color: c.zeroLine },
+          emphasis: {
+            handleStyle: { color: c.legendText },
+            moveHandleStyle: { color: c.axisLabel },
+          },
+          textStyle: { color: c.axisLabel, fontSize: 10 },
+          labelFormatter: (v: number) => fmtClock(v),
+          minValueSpan: MIN_ZOOM_SPAN_MS,
+        },
+      ],
+      series: dataSeries,
     }
-    return raw
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [series, yMin, yMax, plotH, showLot, lotSize, signed, view, n, iEnd])
+  }, [series, future, futAvail, tms, t0, t1, signed, fmtY, theme])
 
-  // ── interaction: pan (drag), zoom (wheel), reset (double-click) ──
-  const pxFromClient = (clientX: number) => {
-    const rect = svgRef.current!.getBoundingClientRect()
-    return ((clientX - rect.left) / rect.width) * W
-  }
-
-  const onDown = (e: React.MouseEvent) => {
-    if (n <= 1) return
-    drag.current = { px: pxFromClient(e.clientX), s: view.s, e: view.e }
-    setHover(null)
-  }
-
-  const onMove = (e: React.MouseEvent) => {
-    if (n === 0) return
-    const px = pxFromClient(e.clientX)
-    if (drag.current) {
-      const snap = drag.current
-      const snapSpan = snap.e - snap.s
-      const dF = ((px - snap.px) / plotW) * snapSpan
-      const s = clamp(snap.s - dF, 0, 1 - snapSpan)
-      setView({ s, e: s + snapSpan })
-      return
+  // Initial option — includes the legend's initial Future visibility. Later
+  // legend clicks are user state; updates never overwrite them (the merged
+  // options below omit legend.selected).
+  const initialOption = useMemo(() => {
+    const opt = buildOption()
+    if (futAvail && !showFuture) {
+      opt.legend = { ...(opt.legend as object), selected: { [FUTURE_NAME]: false } }
     }
-    // Snap the crosshair to the nearest point *in time* within the window.
-    const fi = xToFrac(px)
-    let best = 0
-    let bestD = Infinity
-    for (let i = 0; i < n; i++) {
-      const d = Math.abs(fracs[i] - fi)
-      if (d < bestD) { bestD = d; best = i }
-    }
-    setHover(best)
-  }
+    return opt
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  const endDrag = () => { drag.current = null }
-
-  // Native non-passive wheel listener so we can preventDefault page scroll.
+  // Live updates + theme/selection changes: mutate the existing instance.
+  // replaceMerge on `series` drops deselected contracts instead of leaving
+  // stale lines behind; everything else (dataZoom window, legend selection)
+  // is preserved. The chart instance itself is never torn down.
   useEffect(() => {
-    const el = svgRef.current
-    if (!el) return
-    const onWheel = (e: WheelEvent) => {
-      if (n <= 1) return
-      e.preventDefault()
-      const fc = xToFrac(pxFromClient(e.clientX))
-      const factor = e.deltaY < 0 ? 0.82 : 1 / 0.82
-      const newSpan = clamp(spanF * factor, MIN_SPAN, 1)
-      const ratio = spanF > 0 ? (fc - view.s) / spanF : 0.5
-      let s = clamp(fc - ratio * newSpan, 0, 1 - newSpan)
-      setView({ s, e: s + newSpan })
-    }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  })
+    const inst = chartRef.current?.getEchartsInstance()
+    if (!inst) return
+    inst.setOption(buildOption(), { replaceMerge: ['series'] })
+  }, [buildOption])
 
-  const zoomed = view.s > 0.0001 || view.e < 0.9999
+  const resetZoom = useCallback(() => {
+    const inst = chartRef.current?.getEchartsInstance()
+    inst?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
+  }, [])
+
+  // Double-click anywhere on the canvas resets the zoom window.
+  useEffect(() => {
+    const inst = chartRef.current?.getEchartsInstance()
+    if (!inst) return
+    const zr = inst.getZr()
+    zr.on('dblclick', resetZoom)
+    return () => {
+      // The zr instance is disposed with the chart on unmount; guard anyway.
+      if (!inst.isDisposed()) zr.off('dblclick', resetZoom)
+    }
+  }, [resetZoom])
+
+  const onEvents = useMemo(
+    () => ({
+      datazoom: () => {
+        const inst = chartRef.current?.getEchartsInstance()
+        if (!inst) return
+        const dz = (inst.getOption() as { dataZoom?: { start?: number; end?: number }[] })
+          .dataZoom?.[0]
+        setZoomed(dz != null && ((dz.start ?? 0) > 0.1 || (dz.end ?? 100) < 99.9))
+      },
+    }),
+    [],
+  )
 
   if (n === 0) {
     return (
-      <div ref={wrapRef} className="flex items-center justify-center text-sm text-slate-400" style={{ height }}>
+      <div className="flex items-center justify-center text-sm text-slate-400" style={{ height }}>
         No intraday history yet.
       </div>
     )
   }
 
-  const hx = hover != null ? xAt(hover) : 0
-  const futHover = hasFuture && hover != null ? future![hover] : null
-  const dragging = drag.current != null
-
   return (
-    <div ref={wrapRef} className="relative w-full select-none">
-      <svg
-        ref={svgRef}
-        width={W}
-        height={height}
-        className="block"
-        style={{ cursor: dragging ? 'grabbing' : 'crosshair', touchAction: 'none' }}
-        onMouseDown={onDown}
-        onMouseMove={onMove}
-        onMouseUp={endDrag}
-        onMouseLeave={() => { endDrag(); setHover(null) }}
-        onDoubleClick={() => setView({ s: 0, e: 1 })}
-      >
-        <defs>
-          <clipPath id={clipId}>
-            <rect x={PAD_LEFT} y={PAD_TOP} width={plotW} height={plotH} />
-          </clipPath>
-        </defs>
-
-        {/* horizontal gridlines + right OI axis labels */}
-        {yTicks.map((t) => {
-          const y = yAt(t)
-          return (
-            <g key={`g${t}`}>
-              <line x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y} y2={y} stroke="var(--color-slate-100)" strokeWidth={1} />
-              <text x={PAD_LEFT + plotW + 6} y={y + 3.5} fontSize={11} fill="var(--color-slate-400)">{fmtY(t)}</text>
-            </g>
-          )
-        })}
-
-        {/* left Future price axis labels */}
-        {futTicks.map((t) => (
-          <text key={`f${t}`} x={PAD_LEFT - 6} y={yFut(t) + 3.5} fontSize={11} fill="var(--color-slate-400)" textAnchor="end">
-            {fmtPriceTick(t, futStep)}
-          </text>
-        ))}
-
-        {/* zero baseline for signed (OI change) charts */}
-        {signed && yMin < 0 && yMax > 0 && (
-          <line x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={yAt(0)} y2={yAt(0)} stroke="var(--color-slate-300)" strokeWidth={1.25} strokeDasharray="2 2" />
-        )}
-
-        {/* x-axis time labels + vertical gridlines at round clock times */}
-        {xTicks.map((t) => {
-          const x = xOfTime(t)
-          if (x < PAD_LEFT - 1 || x > PAD_LEFT + plotW + 1) return null
-          return (
-            <g key={`x${t}`}>
-              <line x1={x} x2={x} y1={PAD_TOP} y2={PAD_TOP + plotH} stroke="var(--color-slate-100)" strokeWidth={1} />
-              <text
-                x={x}
-                y={height - 12}
-                fontSize={11}
-                fill="var(--color-slate-400)"
-                textAnchor={x < PAD_LEFT + 24 ? 'start' : x > PAD_LEFT + plotW - 24 ? 'end' : 'middle'}
-              >
-                {fmtClock(new Date(t).toISOString())}
-              </text>
-            </g>
-          )
-        })}
-
-        {/* plotted content (clipped to the plot rect) */}
-        <g clipPath={`url(#${clipId})`}>
-          {hasFuture && futDomain && futureD && (
-            <path d={futureD} fill="none" stroke={FUT} strokeWidth={1.5} strokeDasharray="5 3" opacity={0.9} />
-          )}
-          {series.map((s, i) => (
-            <path key={s.key} d={seriesD[i]} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-          ))}
-          {hover != null && !dragging && (
-            <>
-              <line x1={hx} x2={hx} y1={PAD_TOP} y2={PAD_TOP + plotH} stroke="var(--color-slate-300)" strokeWidth={1} strokeDasharray="3 3" />
-              {futHover != null && futDomain && <circle cx={hx} cy={yFut(futHover)} r={3.5} fill={FUT} />}
-              {series.map((s) =>
-                s.values[hover] == null ? null : (
-                  <circle key={s.key} cx={hx} cy={yAt(s.values[hover] as number)} r={4} fill={s.color} stroke="var(--color-white)" strokeWidth={1.5} />
-                ),
-              )}
-            </>
-          )}
-        </g>
-
-        {/* right-edge value badges */}
-        {badges.map((b) => (
-          <g key={`b${b.key}`}>
-            <rect x={PAD_LEFT + plotW + 2} y={b.y - 8} width={PAD_RIGHT - 4} height={16} rx={3} fill={b.color} />
-            <text x={PAD_LEFT + plotW + 2 + (PAD_RIGHT - 4) / 2} y={b.y + 3.5} fontSize={10.5} fontWeight={700} fill="#fff" textAnchor="middle">{b.text}</text>
-          </g>
-        ))}
-
-        {/* latest future price pill on the left axis (persistent, StockMojo-style) */}
-        {futLast != null && futDomain && (hover == null || dragging) && (
-          <g>
-            <rect x={2} y={clamp(yFut(futLast), PAD_TOP + 8, PAD_TOP + plotH - 8) - 8} width={PAD_LEFT - 6} height={16} rx={3} fill="var(--color-slate-500)" />
-            <text x={2 + (PAD_LEFT - 6) / 2} y={clamp(yFut(futLast), PAD_TOP + 8, PAD_TOP + plotH - 8) + 3.5} fontSize={9.5} fontWeight={700} fill="var(--color-slate-50)" textAnchor="middle">{PRICE_FMT_2.format(futLast)}</text>
-          </g>
-        )}
-
-        {/* future value pill on the left axis (hover) */}
-        {hover != null && !dragging && futHover != null && futDomain && (
-          <g>
-            <rect x={2} y={yFut(futHover) - 8} width={PAD_LEFT - 6} height={16} rx={3} fill="var(--color-slate-700)" />
-            <text x={2 + (PAD_LEFT - 6) / 2} y={yFut(futHover) + 3.5} fontSize={9.5} fontWeight={700} fill="var(--color-slate-50)" textAnchor="middle">{PRICE_FMT_2.format(futHover)}</text>
-          </g>
-        )}
-
-        {/* hovered-time pill on the x-axis */}
-        {hover != null && !dragging && (
-          <g>
-            <rect x={clamp(hx - 34, PAD_LEFT, PAD_LEFT + plotW - 68)} y={height - 24} width={68} height={15} rx={3} fill="var(--color-slate-700)" />
-            <text x={clamp(hx, PAD_LEFT + 34, PAD_LEFT + plotW - 34)} y={height - 13} fontSize={10} fontWeight={600} fill="var(--color-slate-50)" textAnchor="middle">{fmtClock(times[hover])}</text>
-          </g>
-        )}
-      </svg>
-
-      {/* zoom indicator / reset */}
+    <div className="relative w-full">
+      <EChartsReactCore
+        ref={chartRef}
+        echarts={echarts}
+        option={initialOption}
+        notMerge
+        lazyUpdate
+        // All updates flow through the setOption effect above.
+        shouldSetOption={() => false}
+        onEvents={onEvents}
+        style={{ height, width: '100%' }}
+      />
       {zoomed && (
         <button
           type="button"
-          onClick={() => setView({ s: 0, e: 1 })}
-          className="press absolute right-2 top-2 rounded-md border border-slate-200 bg-white/90 px-2 py-1 text-[10px] font-semibold text-slate-600 shadow-sm backdrop-blur hover:bg-slate-50 dark:bg-[#141b27]/90"
+          onClick={resetZoom}
+          className="press absolute right-2 top-7 rounded-md border border-slate-200 bg-white/90 px-2 py-1 text-[10px] font-semibold text-slate-600 shadow-sm backdrop-blur hover:bg-slate-50 dark:bg-[#141b27]/90"
         >
           Reset zoom
         </button>
       )}
-
-      {/* tooltip */}
-      {hover != null && !dragging && (
-        <Tooltip
-          xFrac={clamp((xAt(hover) - PAD_LEFT) / plotW, 0, 1)}
-          time={times[hover]}
-          future={futHover}
-          rows={series.map((s) => ({ label: s.label, color: s.color, value: s.values[hover!] ?? null }))}
-          fmt={fmtY}
-        />
-      )}
-    </div>
-  )
-}
-
-function Tooltip({
-  xFrac,
-  time,
-  future,
-  rows,
-  fmt,
-}: {
-  xFrac: number
-  time: string
-  future: number | null
-  rows: { label: string; color: string; value: number | null }[]
-  fmt: (v: number) => string
-}) {
-  const left = xFrac > 0.55
-  return (
-    <div
-      className="pointer-events-none absolute top-2 z-10 min-w-[190px] rounded-lg border border-slate-200 bg-white/95 p-2.5 text-xs shadow-lg backdrop-blur dark:bg-[#141b27]/95"
-      style={left ? { right: `${(1 - xFrac) * 100}%`, marginRight: 16 } : { left: `${xFrac * 100}%`, marginLeft: 16 }}
-    >
-      <div className="mb-1.5 font-semibold text-slate-700">{fmtClock(time)}</div>
-      {future != null && (
-        <div className="mb-1 flex items-center justify-between gap-4">
-          <span className="flex items-center gap-1.5 text-slate-500">
-            <span className="inline-block h-1.5 w-3 rounded-sm" style={{ background: FUT }} /> Future
-          </span>
-          <span className="font-bold text-slate-800">{PRICE_FMT_2.format(future)}</span>
-        </div>
-      )}
-      {rows.map((r) => (
-        <div key={r.label} className="flex items-center justify-between gap-4">
-          <span className="flex items-center gap-1.5 text-slate-500">
-            <span className="inline-block h-2 w-2 rounded-full" style={{ background: r.color }} /> {r.label}
-          </span>
-          <span className="font-bold text-slate-800">{r.value == null ? '—' : fmt(r.value)}</span>
-        </div>
-      ))}
     </div>
   )
 }

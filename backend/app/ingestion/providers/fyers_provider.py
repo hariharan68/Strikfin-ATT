@@ -12,11 +12,12 @@ Symbols used:
     Option chain   : via Fyers option chain API
 """
 import logging
+import math
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Optional
 
-from app.engines.options_math import implied_vol
 from app.engines.options_math import implied_vol, greeks
 
 logger = logging.getLogger(__name__)
@@ -28,9 +29,13 @@ logger = logging.getLogger(__name__)
 # real API hit per instrument and avoid HTTP 429.
 _CACHE: dict = {}
 _LAST_GOOD: dict = {}  # last successful LIVE result per key (never expires)
+# Serialises the batched spot refresh: the dashboard builds NIFTY + SENSEX
+# cards in parallel threads, so without this both would miss the cache and each
+# fire the "batched" quotes() call — defeating the batching. One thread fetches;
+# the other waits and reads the freshly-populated cache.
+_spot_refresh_lock = threading.Lock()
 _SPOT_TTL = 35.0    # seconds — slightly above the 30s UI poll so polls hit cache
 _CHAIN_TTL = 95.0   # seconds — option chain is heavier / changes slower
-_VIX_TTL = 120.0    # seconds — VIX is best-effort and market-wide
 
 
 def _cache_get(key, ttl):
@@ -113,6 +118,10 @@ _SPOT_SYMBOLS = {
     2: "BSE:SENSEX-INDEX",
 }
 
+# All instruments whose spot is refreshed together in one quotes() call.
+_ALL_INSTRUMENTS = (1, 2)
+_VIX_SYMBOL = "NSE:INDIAVIX-INDEX"
+
 # Fyers' optionchain endpoint takes the underlying INDEX symbol.
 _OPTION_SYMBOLS = {
     1: "NSE:NIFTY50-INDEX",
@@ -165,82 +174,110 @@ def _get_fyers():
 # ─────────────────────────────────────────────────────────────
 
 def get_spot(instrument_id: int) -> dict:
-    """Cached wrapper around _fetch_spot to limit Fyers API calls."""
-    return _serve(
-        ("spot", instrument_id),
-        _SPOT_TTL,
-        lambda: _fetch_spot(instrument_id),
-    )
-
-
-def _get_vix(fyers) -> Optional[float]:
     """
-    Best-effort India VIX. Cached and never raises — a VIX symbol/quota issue
-    must never break the index price. Returns None if unavailable.
+    Live spot for NIFTY 50 / SENSEX, served from the short-TTL cache.
+
+    On a cache miss, ONE batched quotes() call refreshes every instrument's
+    spot AND India VIX together (see _refresh_all_spots). Fetching each symbol
+    separately made the dashboard fire NIFTY-spot + SENSEX-spot + VIX as three
+    near-simultaneous requests, which tripped Fyers' burst rate limit (HTTP
+    429) and silently dropped the whole app onto mock prices. Batching collapses
+    that into a single hit, so the real index price is what actually shows.
     """
-    cached = _cache_get(("vix",), _VIX_TTL)
+    cached = _cache_get(("spot", instrument_id), _SPOT_TTL)
     if cached is not None:
-        return cached if cached != "none" else None
-    vix = None
-    try:
-        r = fyers.quotes({"symbols": "NSE:INDIAVIX-INDEX"})
-        if r.get("code") == 200 and r.get("d"):
-            vix = float(r["d"][0]["v"].get("lp", 0)) or None
-    except Exception:
-        vix = None
-    _cache_put(("vix",), vix if vix is not None else "none")
-    return vix
+        return cached
+
+    with _spot_refresh_lock:
+        # A parallel thread may have refreshed while we waited for the lock.
+        cached = _cache_get(("spot", instrument_id), _SPOT_TTL)
+        if cached is not None:
+            return cached
+        _refresh_all_spots()
+
+    cached = _cache_get(("spot", instrument_id), _SPOT_TTL)
+    return cached if cached is not None else _mock_spot(instrument_id)
 
 
-def _fetch_spot(instrument_id: int) -> dict:
+def _mock_spot(instrument_id: int) -> dict:
+    """Mock spot, tagged so history ingestion never persists it as real data."""
+    from app.ingestion.providers.mock_provider import get_spot as mock_spot
+    result = mock_spot(instrument_id)
+    result["source"] = "mock_fallback"
+    return result
+
+
+def _refresh_all_spots() -> None:
     """
-    Fetch live spot price for NIFTY 50 or SENSEX from Fyers.
+    Refresh every instrument's spot + India VIX in a SINGLE quotes() call, then
+    populate the cache (and last-good store) for each instrument.
 
-    Queries ONLY the index symbol for the price. VIX is fetched separately and
-    is best-effort, so a VIX symbol/quota issue can never break the price.
-    Falls back to mock data on any error.
+    Best-effort and never raises: on a live failure each instrument degrades to
+    its last known LIVE value (so the price never jumps back to a stale mock),
+    or to mock only if we have never had a live value.
     """
-    try:
-        fyers  = _get_fyers()
-        symbol = _SPOT_SYMBOLS.get(instrument_id, "NSE:NIFTY50-INDEX")
+    live: dict[int, dict] = {}
+    vix: Optional[float] = None
+    now_iso = datetime.now(timezone.utc).isoformat()
 
-        data = fyers.quotes({"symbols": symbol})
+    try:
+        fyers   = _get_fyers()
+        symbols = ",".join(
+            [_SPOT_SYMBOLS[i] for i in _ALL_INSTRUMENTS] + [_VIX_SYMBOL]
+        )
+        data = fyers.quotes({"symbols": symbols})
 
         if data.get("code") != 200 or not data.get("d"):
             raise ValueError(f"Fyers quotes error: {data}")
 
-        spot_q = data["d"][0].get("v", {})
+        by_symbol = {d.get("n"): d.get("v", {}) for d in data["d"]}
 
-        ltp       = float(spot_q.get("lp", 0))
-        prev      = float(spot_q.get("prev_close_price", ltp))
-        chg_pct   = round((ltp - prev) / prev * 100, 3) if prev else 0.0
+        vq = by_symbol.get(_VIX_SYMBOL, {})
+        vix = float(vq.get("lp", 0) or 0) or None
+
+        for iid in _ALL_INSTRUMENTS:
+            q = by_symbol.get(_SPOT_SYMBOLS[iid])
+            if not q:
+                continue
+            ltp     = float(q.get("lp", 0))
+            prev    = float(q.get("prev_close_price", ltp) or ltp)
+            chg_pct = round((ltp - prev) / prev * 100, 3) if prev else 0.0
+            live[iid] = {
+                "instrument_id": iid,
+                "symbol":        _SYMBOLS.get(iid, "UNKNOWN"),
+                "last_price":    ltp,
+                "open_price":    float(q.get("open_price", 0)) or None,
+                "high_price":    float(q.get("high_price", 0)) or None,
+                "low_price":     float(q.get("low_price", 0)) or None,
+                "prev_close":    prev,
+                "change_pct":    chg_pct,
+                "volume":        int(q.get("volume", 0)) or None,
+                "india_vix":     vix,
+                "snap_ts":       now_iso,
+                "source":        "fyers",
+            }
 
         logger.info(
-            f"Fyers spot: {_SYMBOLS[instrument_id]} "
-            f"LTP={ltp} chg={chg_pct:+.2f}%"
+            "Fyers batched spot: %s VIX=%s",
+            {_SYMBOLS[i]: live[i]["last_price"] for i in live},
+            vix,
         )
 
-        return {
-            "instrument_id": instrument_id,
-            "symbol":        _SYMBOLS.get(instrument_id, "UNKNOWN"),
-            "last_price":    ltp,
-            "open_price":    float(spot_q.get("open_price", 0)) or None,
-            "high_price":    float(spot_q.get("high_price", 0)) or None,
-            "low_price":     float(spot_q.get("low_price", 0)) or None,
-            "prev_close":    prev,
-            "change_pct":    chg_pct,
-            "volume":        int(spot_q.get("volume", 0)) or None,
-            "india_vix":     _get_vix(fyers),
-            "snap_ts":       datetime.now(timezone.utc).isoformat(),
-            "source":        "fyers",
-        }
-
     except Exception as e:
-        logger.warning(f"Fyers spot failed — falling back to mock: {e}")
-        from app.ingestion.providers.mock_provider import get_spot as mock_spot
-        result = mock_spot(instrument_id)
-        result["source"] = "mock_fallback"
-        return result
+        logger.warning(f"Fyers batched spot failed — using last-good/mock: {e}")
+
+    for iid in _ALL_INSTRUMENTS:
+        if iid in live:
+            _LAST_GOOD[("spot", iid)] = live[iid]
+            _cache_put(("spot", iid), live[iid])
+        elif ("spot", iid) in _LAST_GOOD:
+            stale = dict(_LAST_GOOD[("spot", iid)])
+            stale["source"] = "fyers_cached"
+            if vix is not None:  # a fresh VIX is still worth surfacing
+                stale["india_vix"] = vix
+            _cache_put(("spot", iid), stale)
+        else:
+            _cache_put(("spot", iid), _mock_spot(iid))
 
 
 # ─────────────────────────────────────────────────────────────
@@ -444,20 +481,13 @@ def _fetch_option_chain(
             except (TypeError, ValueError):
                 t_years = 0.0
 
-        # Forward price for Black-76. Fyers carries it as `fp` on the
-        # underlying row; fall back to spot ltp if absent.
-        forward = 0.0
-        for opt in options:
-            if float(opt.get("strike_price", 0) or 0) < 0:
-                forward = float(opt.get("fp", 0) or 0) or float(opt.get("ltp", 0) or 0)
-                break
-
         # Fyers' optionsChain is a FLAT list: each entry is one CE or PE.
         # The underlying carries strike_price == -1 (its ltp is the spot).
-        rows = []
-        total_call = 0
-        total_put  = 0
+        # First pass: collect raw legs + spot; IV needs the forward, which is
+        # derived from the collected legs below.
+        raw_legs: list[dict] = []
         spot = 0.0
+        fp = 0.0
 
         for opt in options:
             otype  = opt.get("option_type", "")
@@ -465,30 +495,64 @@ def _fetch_option_chain(
 
             if otype not in ("CE", "PE") or strike < 0:
                 spot = float(opt.get("ltp", 0) or 0) or spot
+                fp   = float(opt.get("fp", 0) or 0) or fp
                 continue
 
-            oi  = int(opt.get("oi", 0) or 0)
-            ltp = float(opt.get("ltp", 0) or 0)
+            raw_legs.append({
+                "strike":      strike,
+                "option_type": otype,
+                "ltp":         float(opt.get("ltp", 0) or 0),
+                "oi":          int(opt.get("oi", 0) or 0),
+                "oi_change":   int(opt.get("oich", 0) or 0),
+                "volume":      int(opt.get("volume", 0) or 0),
+            })
 
-            # Fyers doesn't return IV — recover it from the premium.
-                        # Fyers doesn't return IV — recover it from the premium.
+        # Forward for Black-76 on THIS expiry. Put-call parity at the strike
+        # nearest spot (F = K + (C − P)/disc) is exact for the chain's own
+        # expiry. Fyers' `fp` is the near-MONTH futures price — using it for a
+        # weekly chain overstates the forward by the extra weeks of carry,
+        # which makes ITM call premiums look below intrinsic and the IV solver
+        # return 0/None for the whole call side. Parity first; carry-adjusted
+        # spot as fallback; `fp` only as a last resort.
+        forward = 0.0
+        disc = math.exp(-0.065 * t_years)
+        by_strike: dict[float, dict[str, float]] = {}
+        for leg in raw_legs:
+            if leg["ltp"] > 0:
+                by_strike.setdefault(leg["strike"], {})[leg["option_type"]] = leg["ltp"]
+        parity = [
+            (abs(k - spot), k, v["CE"], v["PE"])
+            for k, v in by_strike.items()
+            if "CE" in v and "PE" in v and spot > 0
+        ]
+        if parity:
+            _, k, c, p = min(parity)
+            forward = k + (c - p) / disc
+        elif spot > 0:
+            forward = spot * math.exp(0.065 * t_years)
+        else:
+            forward = fp
+
+        # Second pass: recover IV from each premium (Fyers doesn't return IV)
+        # and compute greeks from the same Black-76 model.
+        rows = []
+        total_call = 0
+        total_put  = 0
+
+        for leg in raw_legs:
+            otype, strike, ltp, oi = leg["option_type"], leg["strike"], leg["ltp"], leg["oi"]
             iv = implied_vol(otype, ltp, forward or spot, strike, t_years)
-
-            # Greeks from the same Black-76 model (sigma in decimal).
             g = greeks(otype, forward or spot, strike, t_years, (iv or 0.0) / 100.0)
 
             rows.append({
-                "strike":      strike,
-                "option_type": otype,
-                "ltp":         ltp,
-                "oi":          oi,
-                "oi_change":   int(opt.get("oich", 0) or 0),
-                "volume":      int(opt.get("volume", 0) or 0),
-                "iv":          iv if iv is not None else 0.0,
-                "delta":       g["delta"],
-                "theta":       g["theta"],
-                "vega":        g["vega"],
-                "gamma":       g["gamma"],
+                **leg,
+                # None (not 0.0) when unrecoverable — the DB ck_ocr_iv
+                # constraint rejects iv=0 and the UI renders None as "—".
+                "iv":    iv,
+                "delta": g["delta"],
+                "theta": g["theta"],
+                "vega":  g["vega"],
+                "gamma": g["gamma"],
             })
             if otype == "CE":
                 total_call += oi

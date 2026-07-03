@@ -129,7 +129,7 @@ export function OptionChainTable({ rows, maxRows, atmStrike }: OptionChainTableP
                 {formatNumber(row.ltp)}
               </td>
               <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">
-                {row.iv === undefined ? '—' : formatPctSafe(row.iv)}
+                {row.iv == null || row.iv <= 0 ? '—' : formatPctSafe(row.iv)}
               </td>
               <td className="px-4 py-2.5">
                 <BuildupBadge label={row.buildup} />

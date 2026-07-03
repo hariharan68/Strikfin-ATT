@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BarChart3, Check, Eye, EyeOff, Info, LineChart } from 'lucide-react'
+import { BarChart3, Check, Info, LineChart } from 'lucide-react'
 import { getOILabSeries, INSTRUMENTS } from '../../api/endpoints'
 import type { InstrumentId, OILabSeries } from '../../api/endpoints'
 import { useFetch } from '../../lib/useFetch'
@@ -57,12 +57,6 @@ export function MultiOiVolumeTool() {
   const [selSource, setSelSource] = useState<'oi' | 'vol' | 'custom'>('oi')
   const [selected, setSelected] = useState<string[]>([])
   const [hidden, setHidden] = useState<Set<string>>(new Set())
-  // Legend eye-toggles: whole CALL/PUT totals in Call-vs-Put view and the
-  // dashed future overlay — independent per chart, like the reference UI.
-  const [hiddenCPOi, setHiddenCPOi] = useState<Set<string>>(new Set())
-  const [hiddenCPChg, setHiddenCPChg] = useState<Set<string>>(new Set())
-  const [futOnOi, setFutOnOi] = useState(true)
-  const [futOnChg, setFutOnChg] = useState(true)
   const [selectedExpiry, setSelectedExpiry] = useState(0)
   const [showCustom, setShowCustom] = useState(false)
 
@@ -169,27 +163,10 @@ export function MultiOiVolumeTool() {
     [data, selected, hidden, view, contractById, colorFor],
   )
 
+  // Per-series show/hide now lives in each chart's ECharts legend
+  // (click-to-toggle, Future included) — no external eye-toggle state.
   const oiSeriesAll = useMemo(() => buildSeries(metric), [buildSeries, metric])
   const chgSeriesAll = useMemo(() => buildSeries('chg'), [buildSeries])
-  // In Call-vs-Put view the legend can hide a whole CALL/PUT total without
-  // touching the per-strike chip selection — per chart.
-  const oiSeries = useMemo(
-    () => oiSeriesAll.filter((s) => view !== 'callput' || !hiddenCPOi.has(s.key)),
-    [oiSeriesAll, view, hiddenCPOi],
-  )
-  const chgSeries = useMemo(
-    () => chgSeriesAll.filter((s) => view !== 'callput' || !hiddenCPChg.has(s.key)),
-    [chgSeriesAll, view, hiddenCPChg],
-  )
-
-  const toggleIn = (set: React.Dispatch<React.SetStateAction<Set<string>>>) => (key: string) =>
-    set((prev) => {
-      const next = new Set(prev)
-      next.has(key) ? next.delete(key) : next.add(key)
-      return next
-    })
-  const toggleCPOi = toggleIn(setHiddenCPOi)
-  const toggleCPChg = toggleIn(setHiddenCPChg)
 
   // CALL/PUT totals at the latest snapshot across the whole strike window —
   // powers the summary bar panels (mirrors the reference UI's bottom cards).
@@ -349,14 +326,7 @@ export function MultiOiVolumeTool() {
             <Skeleton className="h-[340px] w-full" />
           ) : (
             <>
-              <Legend
-                series={oiSeriesAll}
-                isHidden={(k) => (view === 'callput' ? hiddenCPOi.has(k) : false)}
-                onToggle={view === 'callput' ? toggleCPOi : undefined}
-                futureOn={futOnOi}
-                onToggleFuture={() => setFutOnOi((v) => !v)}
-              />
-              <MultiLineChart times={times} series={oiSeries} future={future} lotSize={lotSize} showLot={false} showFuture={futOnOi} domainStart={sessionStart} domainEnd={sessionEnd} />
+              <MultiLineChart times={times} series={oiSeriesAll} future={future} lotSize={lotSize} showLot={false} domainStart={sessionStart} domainEnd={sessionEnd} />
               <p className="mt-2 text-[11px] leading-snug text-slate-400">
                 Intraday {metric === 'oi' ? 'open interest' : 'volume'} per strike across the 9:15 am – 3:30 pm session
                 (data from {fmtClock(data.open_ts)} to {fmtClock(data.now_ts)})
@@ -378,14 +348,7 @@ export function MultiOiVolumeTool() {
             <Skeleton className="h-[340px] w-full" />
           ) : (
             <>
-              <Legend
-                series={chgSeriesAll}
-                isHidden={(k) => (view === 'callput' ? hiddenCPChg.has(k) : false)}
-                onToggle={view === 'callput' ? toggleCPChg : undefined}
-                futureOn={futOnChg}
-                onToggleFuture={() => setFutOnChg((v) => !v)}
-              />
-              <MultiLineChart times={times} series={chgSeries} future={future} lotSize={lotSize} showLot={false} signed showFuture={futOnChg} domainStart={sessionStart} domainEnd={sessionEnd} />
+              <MultiLineChart times={times} series={chgSeriesAll} future={future} lotSize={lotSize} showLot={false} signed domainStart={sessionStart} domainEnd={sessionEnd} />
               <p className="mt-2 text-[11px] leading-snug text-slate-400">
                 Intraday OI change (vs the day's open) per strike. Rising = fresh writing, falling = unwinding.
               </p>
@@ -527,62 +490,6 @@ function Segmented({ options, value, onChange }: { options: { k: string; label: 
           {o.label}
         </button>
       ))}
-    </div>
-  )
-}
-
-/**
- * Interactive legend (StockMojo-style): each entry is an eye-toggle. The Future
- * overlay always toggles; series entries toggle only when `onToggle` is given
- * (Call-vs-Put view — Individual strikes are hidden via the sidebar chips).
- */
-function Legend({
-  series,
-  isHidden,
-  onToggle,
-  futureOn,
-  onToggleFuture,
-}: {
-  series: LineSeries[]
-  isHidden: (key: string) => boolean
-  onToggle?: (key: string) => void
-  futureOn: boolean
-  onToggleFuture: () => void
-}) {
-  return (
-    <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs font-semibold">
-      <button
-        onClick={onToggleFuture}
-        className={cn('press flex items-center gap-1.5 rounded-md px-1.5 py-0.5', futureOn ? 'text-slate-500 hover:bg-slate-50' : 'text-slate-300 hover:bg-slate-50')}
-        title={futureOn ? 'Hide future price' : 'Show future price'}
-      >
-        {futureOn ? <Eye size={13} /> : <EyeOff size={13} />}
-        <span className="inline-block h-0.5 w-4 border-t-2 border-dashed border-slate-400" /> Future
-      </button>
-      {series.map((s) => {
-        const off = isHidden(s.key)
-        const body = (
-          <>
-            {onToggle && (off ? <EyeOff size={13} /> : <Eye size={13} />)}
-            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: off ? 'var(--color-slate-300)' : s.color }} /> {s.label}
-          </>
-        )
-        if (!onToggle) {
-          return (
-            <span key={s.key} className="flex items-center gap-1.5 px-1.5 py-0.5 text-slate-600">{body}</span>
-          )
-        }
-        return (
-          <button
-            key={s.key}
-            onClick={() => onToggle(s.key)}
-            className={cn('press flex items-center gap-1.5 rounded-md px-1.5 py-0.5 hover:bg-slate-50', off ? 'text-slate-300' : 'text-slate-600')}
-            title={off ? 'Click to show' : 'Click to hide'}
-          >
-            {body}
-          </button>
-        )
-      })}
     </div>
   )
 }
