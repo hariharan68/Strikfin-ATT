@@ -3,7 +3,9 @@ import { api } from './client'
 // ---------------------------------------------------------------------------
 // Shared
 // ---------------------------------------------------------------------------
-export type InstrumentId = 1 | 2
+// Instrument identity is now DB-driven (any active instrument), so the id is a
+// plain number — no longer the closed `1 | 2` union.
+export type InstrumentId = number
 
 export interface Instrument {
   id: InstrumentId
@@ -12,10 +14,63 @@ export interface Instrument {
   short: string
 }
 
+/**
+ * Static fallback catalog — the two built-in indices. The live catalog is
+ * fetched from `GET /instruments` (see getInstruments / useInstruments); this
+ * array is only the initial/offline seed so the UI renders instantly and never
+ * blanks if the catalog request is in flight.
+ */
 export const INSTRUMENTS: Instrument[] = [
   { id: 1, key: 'nifty', label: 'NIFTY 50', short: 'NIFTY' },
   { id: 2, key: 'sensex', label: 'SENSEX', short: 'SENSEX' },
 ]
+
+// ---------------------------------------------------------------------------
+// Instrument Master catalog (M1 backend: /instruments)
+// ---------------------------------------------------------------------------
+export interface InstrumentMeta {
+  instrument_id: number
+  uid?: string | null
+  symbol: string
+  display_name?: string | null
+  label: string
+  exchange: string
+  segment?: string | null
+  instrument_type?: string | null
+  underlying?: string | null
+  lot_size: number
+  tick_size?: number | null
+  strike_step?: number | null
+  expiry_rule?: string | null
+  status?: string | null
+  is_active: boolean
+}
+
+/** Map an API InstrumentMeta to the lightweight Instrument tab shape. */
+export function toInstrument(m: InstrumentMeta): Instrument {
+  return {
+    id: m.instrument_id,
+    key: m.symbol.toLowerCase(),
+    label: m.label || m.display_name || m.symbol,
+    short: m.symbol,
+  }
+}
+
+/** Full active instrument catalog. */
+export async function getInstruments(includeInactive = false): Promise<InstrumentMeta[]> {
+  const { data } = await api.get<InstrumentMeta[]>('/instruments', {
+    params: includeInactive ? { include_inactive: true } : undefined,
+  })
+  return data
+}
+
+/** Search instruments by symbol / display name (global palette). */
+export async function searchInstruments(q: string, limit = 20): Promise<InstrumentMeta[]> {
+  const { data } = await api.get<InstrumentMeta[]>('/instruments/search', {
+    params: { q, limit },
+  })
+  return data
+}
 
 /** -1 bearish, 0 neutral, 1 bullish. */
 export type BiasValue = 1 | 0 | -1
@@ -27,6 +82,9 @@ export interface User {
   id?: string
   email: string
   display_name: string
+  phone?: string | null
+  state?: string | null
+  auth_provider?: string
 }
 
 export interface AuthTokens {
@@ -67,6 +125,57 @@ export async function logout(refresh_token: string): Promise<void> {
 
 export async function getMe(): Promise<User> {
   const { data } = await api.get<User>('/auth/me')
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Profile / preferences / plan (Settings page)
+// ---------------------------------------------------------------------------
+export interface ProfileUpdate {
+  display_name?: string
+  phone?: string
+  state?: string
+}
+
+/** Partial profile update; returns the updated user. */
+export async function updateProfile(payload: ProfileUpdate): Promise<User> {
+  const { data } = await api.patch<User>('/auth/me', payload)
+  return data
+}
+
+export type ThemeName = 'classic' | 'warm' | 'dark' | 'terminal'
+export type CallPutScheme = 'classic' | 'inverted'
+
+export interface Preferences {
+  theme: ThemeName | null
+  show_chart_tooltip: boolean
+  call_put_scheme: CallPutScheme
+}
+
+export async function getPreferences(): Promise<Preferences> {
+  const { data } = await api.get<Preferences>('/me/preferences')
+  return data
+}
+
+/** Partial upsert of the caller's preferences; returns the full set. */
+export async function updatePreferences(
+  payload: Partial<Preferences>,
+): Promise<Preferences> {
+  const { data } = await api.put<Preferences>('/me/preferences', payload)
+  return data
+}
+
+export interface PlanInfo {
+  key: string
+  name: string
+  price_inr: number // paise
+  limits: Record<string, number | boolean>
+  renewal_date: string | null
+  status: string
+}
+
+export async function getPlan(): Promise<PlanInfo> {
+  const { data } = await api.get<PlanInfo>('/me/plan')
   return data
 }
 
@@ -587,11 +696,24 @@ export interface AiBias {
   confidence?: number
 }
 
+/** One instrument's slice in the generic /dashboard `instruments` list (M3). */
+export interface DashboardInstrumentEntry {
+  instrument_id: number
+  symbol: string
+  label: string
+  card: IndexSnapshot
+  signal?: SignalData
+  option_chain?: OptionChainRow[]
+  options?: OptionsMetrics
+}
+
 export interface DashboardData {
   generated_at?: string
   updated_at?: string
   as_of?: string
   market_hours?: boolean
+  // Generic forward shape — one entry per active instrument (M3+).
+  instruments?: DashboardInstrumentEntry[]
   indices?: IndexSnapshot[]
   nifty?: IndexSnapshot
   sensex?: IndexSnapshot

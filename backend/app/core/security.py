@@ -38,10 +38,19 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 # ── Access Token ──────────────────────────────────────────────
-def create_access_token(user_id: int) -> str:
+def create_access_token(
+    user_id: int,
+    org_id: str | None = None,
+    role: str | None = None,
+) -> str:
     """
     Creates a short-lived JWT access token.
     Expires in ACCESS_TOKEN_EXPIRE_MINUTES (default 60).
+
+    `org_id` (active organization) and `role` are optional multi-tenant claims
+    (M5). They're omitted for tokens minted before orgs existed; the tenant
+    dependency then resolves the active org from the DB, so old tokens keep
+    working through their lifetime.
     """
     expires = datetime.now(timezone.utc) + timedelta(
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
@@ -51,6 +60,10 @@ def create_access_token(user_id: int) -> str:
         "exp":  expires,
         "type": "access",
     }
+    if org_id is not None:
+        payload["org"] = str(org_id)
+    if role is not None:
+        payload["role"] = role
     return jwt.encode(
         payload,
         settings.SECRET_KEY,

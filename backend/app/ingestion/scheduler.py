@@ -29,13 +29,13 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 from app.core.config import settings
 from app.db.models import IndexLiveData
 from app.db.session import AsyncSessionLocal
+from app.instruments import snapshot as instrument_snapshot
 from app.ingestion.providers import get_spot
 from app.services.options_service import OptionsService
 from app.services.signal_outcome_service import SignalOutcomeService
 
 logger = logging.getLogger(__name__)
 
-_INSTRUMENTS = (1, 2)
 _MARKET_OPEN = time(9, 15)
 _MARKET_CLOSE = time(15, 30)
 
@@ -58,7 +58,11 @@ def _should_run() -> bool:
 async def _snapshot_index() -> None:
     """Write one IndexLiveData row per instrument from the live spot feed."""
     async with AsyncSessionLocal() as db:
-        for iid in _INSTRUMENTS:
+        # Keep the sync provider snapshot fresh so newly-added / toggled
+        # instruments propagate without a restart, then iterate the DB list
+        # (replaces the hardcoded _INSTRUMENTS = (1, 2) tuple).
+        await instrument_snapshot.refresh(db)
+        for iid in instrument_snapshot.snapshot_enabled_ids():
             try:
                 s = get_spot(iid)
                 ltp = float(s.get("last_price") or 0)
@@ -87,7 +91,7 @@ async def _snapshot_options() -> None:
     """Persist an option-chain snapshot per instrument (feeds IV history)."""
     async with AsyncSessionLocal() as db:
         svc = OptionsService(db)
-        for iid in _INSTRUMENTS:
+        for iid in instrument_snapshot.snapshot_enabled_ids():
             try:
                 await svc.get_latest_metrics(iid, persist=True)  # scheduler owns persistence
             except Exception:

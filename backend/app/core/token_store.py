@@ -51,16 +51,32 @@ def get_token_info() -> dict:
 # SET
 # ─────────────────────────────────────────────────────────────
 
+def set_in_memory(token: str) -> None:
+    """Set the in-memory token only — no .env write.
+
+    Used when the durable source is the DB (broker_connections): on startup we
+    hydrate the fast in-memory store from the encrypted DB token without
+    round-tripping through .env. See app.brokers.connections.load_fyers_token_into_store.
+    """
+    _store["access_token"] = token
+    _store["generated_at"] = datetime.now(timezone.utc).isoformat()
+    _store["is_valid"]     = bool(token)
+
+
 def set_access_token(token: str) -> None:
     """
     Store token in memory AND write to .env file.
     So app restart doesn't lose the token.
+
+    NOTE: durable persistence is moving to the encrypted broker_connections
+    table (app.brokers.connections.save_broker_token), called from the Fyers
+    OAuth route. The .env write is kept as a backward-compatible fallback.
     """
     _store["access_token"] = token
     _store["generated_at"] = datetime.now(timezone.utc).isoformat()
     _store["is_valid"]     = True
 
-    # Persist to .env
+    # Persist to .env (legacy fallback; DB is now the primary durable store)
     _write_token_to_env(token)
 
 

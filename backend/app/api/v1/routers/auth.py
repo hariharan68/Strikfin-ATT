@@ -16,6 +16,7 @@ from app.core.exceptions import to_http_exception, AppError
 from app.domain.schemas import (
     LoginRequest,
     LogoutRequest,
+    ProfileUpdate,
     RefreshRequest,
     RegisterRequest,
     TokenResponse,
@@ -112,5 +113,19 @@ async def me(
     try:
         svc = AuthService(db)
         return await svc.get_me(current_user_id)
+    except AppError as e:
+        raise to_http_exception(e)
+
+
+# ── Update profile ────────────────────────────────────────────
+@router.patch("/me", response_model=UserOut)
+async def update_me(
+    body: ProfileUpdate,
+    db: DBSession,
+    current_user_id: CurrentUserId,
+):
+    try:
+        svc = AuthService(db)
+        return await svc.update_profile(current_user_id, body)
     except AppError as e:
         raise to_http_exception(e)

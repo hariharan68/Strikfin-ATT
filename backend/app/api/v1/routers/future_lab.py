@@ -18,7 +18,7 @@ router = APIRouter(prefix="/future-lab", tags=["future-lab"])
 
 @router.get("/price-oi/{instrument_id}")
 async def price_vs_oi(
-    instrument_id: int = Path(..., ge=1, le=2),
+    instrument_id: int = Path(..., ge=1),
     db: DBSession = None,
     _uid: CurrentUserId = None,
 ):

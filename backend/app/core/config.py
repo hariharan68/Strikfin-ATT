@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     # ── Market Data ───────────────────────────────────────────
     MARKET_DATA_VENDOR: Literal["mock", "fyers"] = "mock"
 
+    # ── WebSockets ────────────────────────────────────────────
+    # Cadence at which the WS publisher pushes fresh quotes/OI to subscribers.
+    WS_PUBLISH_INTERVAL_SECONDS: int = 3
+
     # ── Ingestion & signal scoring ────────────────────────────
     # Background loop that snapshots index/option data into the history tables
     # (powers real ATR/ADX/IV-percentile and signal-outcome scoring).
@@ -74,6 +78,13 @@ class Settings(BaseSettings):
     LLM_PROVIDER: Literal["openai", "anthropic", "none"] = "none"
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
+
+    # ── Broker connections ────────────────────────────────────────
+    # Fernet key used to encrypt broker access/refresh tokens at rest in the
+    # broker_connections table. Leave empty to derive a stable key from
+    # SECRET_KEY (fine for single-node dev). Set an explicit 32-byte urlsafe
+    # base64 key in production and rotate it independently of SECRET_KEY.
+    BROKER_TOKEN_ENC_KEY: str = ""
 
     # ── Fyers API ─────────────────────────────────────────────────
     FYERS_CLIENT_ID: str = ""

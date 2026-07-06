@@ -28,8 +28,8 @@ from app.engines.options_math import (
     net_gex,
     gamma_flip_strike,
     gex_label,
-    LOT_SIZE,
 )
+from app.instruments import snapshot as instrument_snapshot
 from app.ingestion.providers import get_futures, get_option_chain, get_spot
 
 _IV_HISTORY_MIN = 20  # minimum snapshots needed for real percentile
@@ -151,7 +151,7 @@ class OptionsService:
         engine_rows = _to_engine_rows(raw_rows, change_pct)
 
         strikes        = sorted({r.strike for r in engine_rows})
-        atm            = atm_strike(spot, strikes)
+        atm            = atm_strike(spot, strikes, instrument_snapshot.strike_step(instrument_id))
         pcr_oi_val     = pcr_oi(engine_rows)
         pcr_vol_val    = pcr_volume(engine_rows)
         max_pain_val   = max_pain(engine_rows, strikes)
@@ -163,7 +163,7 @@ class OptionsService:
         ) if atm_iv_val is not None else (None, None)
         
         # Gamma exposure (raw_rows now carry per-strike gamma from provider)
-        lot          = LOT_SIZE.get(instrument_id, 65)
+        lot          = instrument_snapshot.lot_size(instrument_id)
         net_gex_val  = net_gex(raw_rows, spot, lot)
         gamma_flip   = gamma_flip_strike(raw_rows, spot)
         gex_lbl      = gex_label(net_gex_val)
@@ -321,7 +321,7 @@ class OptionsService:
         return {
             "instrument_id": instrument_id,
             "spot":          spot,
-            "atm_strike":    atm_strike(spot, sorted({r["strike"] for r in raw_rows})),
+            "atm_strike":    atm_strike(spot, sorted({r["strike"] for r in raw_rows}), instrument_snapshot.strike_step(instrument_id)),
             "snap_ts":       datetime.now(timezone.utc).isoformat(),
             "expiry_date":   chain_data.get("expiry_date"),
             "chain_rows":    classified,

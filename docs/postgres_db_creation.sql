@@ -37,6 +37,8 @@
   ───────────────────────────────────────────────────────────
   01. users
   02. refresh_tokens
+  02b. user_preferences          (1:1 with users — Settings-page state)
+  02c. broker_connections        (per-user encrypted vendor tokens)
   03. instruments                (seeded: NIFTY50, SENSEX)
   04. index_live_data
   05. option_chain_snapshots
@@ -48,6 +50,10 @@
   11. ai_trade_signals
   12. signal_outcomes
   13. audit_logs
+  14. MULTI-TENANT (SaaS) — M5:
+      permissions · plans · roles · organizations · role_permissions ·
+      api_keys · memberships · subscriptions
+      (seeded reference data: 13 permissions, 4 roles + grants, 4 plans; + RLS)
 
   VIEWS
   ─────────────────────────
@@ -75,6 +81,9 @@ CREATE TABLE IF NOT EXISTS users (
     email         VARCHAR(255)  NOT NULL,
     password_hash VARCHAR(255)  NOT NULL,
     display_name  VARCHAR(100),
+    phone         VARCHAR(20),
+    state         VARCHAR(64),
+    auth_provider VARCHAR(20)   NOT NULL DEFAULT 'email',
     is_active     BOOLEAN       NOT NULL DEFAULT TRUE,
     created_at    TIMESTAMP     NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
     last_login_at TIMESTAMP,
@@ -83,6 +92,13 @@ CREATE TABLE IF NOT EXISTS users (
     CONSTRAINT ck_users_email_len CHECK (char_length(email) >= 3)
 );
 CREATE INDEX IF NOT EXISTS ix_users_email ON users (email);
+
+-- Idempotent backfill: CREATE TABLE above is skipped if `users` already exists,
+-- so re-running this script on a pre-profile database still adds the Settings-
+-- page profile columns rather than silently leaving them behind.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone         VARCHAR(20);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS state         VARCHAR(64);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(20) NOT NULL DEFAULT 'email';
 
 -- ============================================================================
 -- 2. REFRESH TOKENS
@@ -101,6 +117,45 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
         REFERENCES users (user_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS ix_refresh_tokens_user ON refresh_tokens (user_id);
+
+-- ============================================================================
+-- 2b. USER PREFERENCES  (1:1 with users — Settings-page state, cascade-deleted)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id            BIGINT       PRIMARY KEY,
+    theme              VARCHAR(20),                              -- classic|warm|dark|terminal
+    show_chart_tooltip BOOLEAN      NOT NULL DEFAULT TRUE,
+    call_put_scheme    VARCHAR(16)  NOT NULL DEFAULT 'classic',  -- classic|inverted
+    created_at         TIMESTAMP    NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+    updated_at         TIMESTAMP    NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+
+    CONSTRAINT fk_user_preferences_user FOREIGN KEY (user_id)
+        REFERENCES users (user_id) ON DELETE CASCADE
+);
+
+-- ============================================================================
+-- 2c. BROKER CONNECTIONS  (per-user encrypted vendor tokens — Fyers today)
+-- ============================================================================
+-- Access/refresh tokens are Fernet-encrypted (never plaintext). user_id is
+-- nullable: the Fyers OAuth callback is unauthenticated, so that row is the
+-- implicit single-user/global connection until per-user M5 wiring lands.
+CREATE TABLE IF NOT EXISTS broker_connections (
+    id                UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id           BIGINT,
+    broker            VARCHAR(20)   NOT NULL,           -- fyers | zerodha | …
+    access_token_enc  TEXT,
+    refresh_token_enc TEXT,
+    meta              JSONB         NOT NULL DEFAULT '{}'::jsonb,
+    status            VARCHAR(20)   NOT NULL DEFAULT 'ACTIVE',  -- ACTIVE|EXPIRED|REVOKED
+    generated_at      TIMESTAMP,
+    expires_at        TIMESTAMP,
+    created_at        TIMESTAMP     NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+    updated_at        TIMESTAMP     NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+
+    CONSTRAINT fk_broker_conn_user FOREIGN KEY (user_id)
+        REFERENCES users (user_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ix_broker_conn_user_broker ON broker_connections (user_id, broker);
 
 -- ============================================================================
 -- 3. INSTRUMENTS  (reference table — SMALLINT PK with explicit ids)
@@ -381,6 +436,210 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 CREATE INDEX IF NOT EXISTS ix_audit_user   ON audit_logs (user_id, as_of);
 CREATE INDEX IF NOT EXISTS ix_audit_action ON audit_logs (action, as_of);
+
+
+-- ============================================================================
+-- 14. MULTI-TENANT (SaaS) PLANE  — M5
+--     plans · organizations · roles · permissions · role_permissions ·
+--     memberships · api_keys · subscriptions  (+ seeded reference data + RLS)
+-- ============================================================================
+-- Every user gets a personal organization on register (owner role, plan 'free').
+-- UUID PKs use gen_random_uuid() (built into PostgreSQL 13+). Created/updated
+-- timestamps are naive-UTC TIMESTAMP, matching the rest of this schema.
+
+-- 14.1 permissions (reference — seeded below)
+CREATE TABLE IF NOT EXISTS permissions (
+    id          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+    key         VARCHAR(60)   NOT NULL,
+    description VARCHAR(200),
+
+    CONSTRAINT uq_permissions_key UNIQUE (key)
+);
+
+-- 14.2 plans (reference — seeded below; price_inr is in PAISE)
+CREATE TABLE IF NOT EXISTS plans (
+    id        UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+    key       VARCHAR(20)   NOT NULL,               -- free|pro|desk|enterprise
+    name      VARCHAR(60)   NOT NULL,
+    price_inr INTEGER       NOT NULL DEFAULT 0,      -- paise
+    limits    JSONB         NOT NULL DEFAULT '{}'::jsonb,
+    is_active BOOLEAN       NOT NULL DEFAULT TRUE,
+
+    CONSTRAINT uq_plans_key UNIQUE (key)
+);
+
+-- 14.3 roles (reference — seeded below)
+CREATE TABLE IF NOT EXISTS roles (
+    id        UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+    key       VARCHAR(30)   NOT NULL,               -- owner|admin|analyst|viewer
+    name      VARCHAR(60)   NOT NULL,
+    is_system BOOLEAN       NOT NULL DEFAULT TRUE,
+
+    CONSTRAINT uq_roles_key UNIQUE (key)
+);
+
+-- 14.4 organizations (a tenant; personal org per user)
+CREATE TABLE IF NOT EXISTS organizations (
+    id            UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+    name          VARCHAR(120)  NOT NULL,
+    slug          VARCHAR(140)  NOT NULL,
+    owner_user_id BIGINT        NOT NULL,
+    plan_key      VARCHAR(20)   NOT NULL DEFAULT 'free',
+    is_personal   BOOLEAN       NOT NULL DEFAULT TRUE,
+    created_at    TIMESTAMP     NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+    updated_at    TIMESTAMP     NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+    deleted_at    TIMESTAMP,
+
+    CONSTRAINT uq_organizations_slug UNIQUE (slug),
+    CONSTRAINT fk_org_owner FOREIGN KEY (owner_user_id)
+        REFERENCES users (user_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ix_org_owner ON organizations (owner_user_id);
+
+-- 14.5 role_permissions (role ↔ permission grants — seeded below)
+CREATE TABLE IF NOT EXISTS role_permissions (
+    role_id       UUID NOT NULL,
+    permission_id UUID NOT NULL,
+
+    CONSTRAINT pk_role_permissions PRIMARY KEY (role_id, permission_id),
+    CONSTRAINT fk_rp_role FOREIGN KEY (role_id)
+        REFERENCES roles (id) ON DELETE CASCADE,
+    CONSTRAINT fk_rp_permission FOREIGN KEY (permission_id)
+        REFERENCES permissions (id) ON DELETE CASCADE
+);
+
+-- 14.6 api_keys (per-org public API plane; only the hash is stored)
+CREATE TABLE IF NOT EXISTS api_keys (
+    id           UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id       UUID          NOT NULL,
+    name         VARCHAR(80)   NOT NULL,
+    key_prefix   VARCHAR(16)   NOT NULL,
+    key_hash     VARCHAR(128)  NOT NULL,
+    scopes       JSONB         NOT NULL DEFAULT '[]'::jsonb,
+    created_by   BIGINT,
+    last_used_at TIMESTAMP,
+    revoked_at   TIMESTAMP,
+    created_at   TIMESTAMP     NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+
+    CONSTRAINT uq_api_keys_hash UNIQUE (key_hash),
+    CONSTRAINT fk_api_keys_org FOREIGN KEY (org_id)
+        REFERENCES organizations (id) ON DELETE CASCADE,
+    CONSTRAINT fk_api_keys_creator FOREIGN KEY (created_by)
+        REFERENCES users (user_id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS ix_api_keys_org ON api_keys (org_id);
+
+-- 14.7 memberships (a user's role within an org)
+CREATE TABLE IF NOT EXISTS memberships (
+    id         UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id     UUID          NOT NULL,
+    user_id    BIGINT        NOT NULL,
+    role_id    UUID          NOT NULL,
+    status     VARCHAR(20)   NOT NULL DEFAULT 'ACTIVE',  -- ACTIVE|INVITED|SUSPENDED
+    created_at TIMESTAMP     NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+
+    CONSTRAINT uq_membership_org_user UNIQUE (org_id, user_id),
+    CONSTRAINT fk_membership_org FOREIGN KEY (org_id)
+        REFERENCES organizations (id) ON DELETE CASCADE,
+    CONSTRAINT fk_membership_user FOREIGN KEY (user_id)
+        REFERENCES users (user_id) ON DELETE CASCADE,
+    CONSTRAINT fk_membership_role FOREIGN KEY (role_id)
+        REFERENCES roles (id)
+);
+CREATE INDEX IF NOT EXISTS ix_membership_org  ON memberships (org_id);
+CREATE INDEX IF NOT EXISTS ix_membership_user ON memberships (user_id);
+
+-- 14.8 subscriptions (an org's current plan; Razorpay staged, not live)
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id                 UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id             UUID          NOT NULL,
+    plan_key           VARCHAR(20)   NOT NULL,
+    status             VARCHAR(20)   NOT NULL DEFAULT 'ACTIVE',   -- ACTIVE|PAST_DUE|CANCELED
+    provider           VARCHAR(20)   NOT NULL DEFAULT 'manual',   -- manual|razorpay
+    provider_ref       VARCHAR(120),
+    current_period_end TIMESTAMP,
+    created_at         TIMESTAMP     NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+    updated_at         TIMESTAMP     NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+
+    CONSTRAINT fk_subscriptions_org FOREIGN KEY (org_id)
+        REFERENCES organizations (id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ix_subscriptions_org ON subscriptions (org_id);
+
+-- ── 14.9 Seed reference data (idempotent via ON CONFLICT) ───────────────────
+INSERT INTO permissions (key, description) VALUES
+    ('instrument.read', 'Read instruments, quotes, chains'),
+    ('dashboard.read',  'View dashboards'),
+    ('options.read',    'View options analytics'),
+    ('analytics.read',  'View analytics (OI, gamma, etc.)'),
+    ('watchlist.write', 'Create/edit watchlists'),
+    ('alert.write',     'Create/edit alerts'),
+    ('strategy.write',  'Create/edit strategies'),
+    ('journal.write',   'Create/edit journal entries'),
+    ('broker.connect',  'Connect a broker account'),
+    ('member.manage',   'Invite/remove org members'),
+    ('apikey.manage',   'Create/revoke API keys'),
+    ('org.manage',      'Manage organization settings'),
+    ('org.billing',     'Manage billing & subscription')
+ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO roles (key, name, is_system) VALUES
+    ('owner',   'Owner',   TRUE),
+    ('admin',   'Admin',   TRUE),
+    ('analyst', 'Analyst', TRUE),
+    ('viewer',  'Viewer',  TRUE)
+ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO plans (key, name, price_inr, limits) VALUES
+    ('free',       'Free',       0,      '{"watchlists":1,"alerts":3,"api_keys":0,"live_data":false}'),
+    ('pro',        'Pro',        49900,  '{"watchlists":25,"alerts":100,"api_keys":2,"live_data":true}'),
+    ('desk',       'Desk',       249900, '{"watchlists":200,"alerts":1000,"api_keys":10,"live_data":true}'),
+    ('enterprise', 'Enterprise', 0,      '{"watchlists":-1,"alerts":-1,"api_keys":-1,"live_data":true}')
+ON CONFLICT (key) DO NOTHING;
+
+-- Role → permission grants (cumulative: viewer ⊂ analyst ⊂ admin ⊂ owner).
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p WHERE
+    (r.key = 'viewer'  AND p.key IN ('instrument.read','dashboard.read','options.read','analytics.read'))
+ OR (r.key = 'analyst' AND p.key IN ('instrument.read','dashboard.read','options.read','analytics.read',
+                                     'watchlist.write','alert.write','strategy.write','journal.write','broker.connect'))
+ OR (r.key = 'admin'   AND p.key IN ('instrument.read','dashboard.read','options.read','analytics.read',
+                                     'watchlist.write','alert.write','strategy.write','journal.write','broker.connect',
+                                     'member.manage','apikey.manage'))
+ OR (r.key = 'owner'   AND p.key IN ('instrument.read','dashboard.read','options.read','analytics.read',
+                                     'watchlist.write','alert.write','strategy.write','journal.write','broker.connect',
+                                     'member.manage','apikey.manage','org.manage','org.billing'))
+ON CONFLICT DO NOTHING;
+
+-- ── 14.10 Row-Level Security (deploy-ready tenant isolation) ─────────────────
+-- Policies key on the per-request GUC app.tenant_id (set by get_db). The app
+-- currently connects as a superuser role, which BYPASSES RLS — so app-layer
+-- scoping is the live enforcement; these policies activate under a non-superuser
+-- role. The NULL/'' branch keeps system/bootstrap queries (no tenant set) working.
+-- DROP + CREATE keeps this block idempotent (CREATE POLICY has no IF NOT EXISTS).
+DO $$
+DECLARE
+    t   TEXT;
+    col TEXT;
+    tenant_tables CONSTANT TEXT[][] := ARRAY[
+        ['organizations','id'], ['memberships','org_id'],
+        ['api_keys','org_id'],  ['subscriptions','org_id']
+    ];
+    i INT;
+BEGIN
+    FOR i IN 1 .. array_length(tenant_tables, 1) LOOP
+        t   := tenant_tables[i][1];
+        col := tenant_tables[i][2];
+        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', t || '_tenant_isolation', t);
+        EXECUTE format($f$
+            CREATE POLICY %I ON %I USING (
+                current_setting('app.tenant_id', true) IS NULL
+                OR current_setting('app.tenant_id', true) = ''
+                OR %I = current_setting('app.tenant_id', true)::uuid
+            )$f$, t || '_tenant_isolation', t, col);
+    END LOOP;
+END $$;
 
 
 -- ============================================================================

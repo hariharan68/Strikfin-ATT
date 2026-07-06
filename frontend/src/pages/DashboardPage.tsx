@@ -34,7 +34,8 @@ import { AwaitingData } from '../components/ui/AwaitingData'
 import { AnimatedNumber } from '../components/ui/AnimatedNumber'
 import { Markdown } from '../components/Markdown'
 import { useInstrument } from '../lib/useInstrument'
-import { INSTRUMENTS } from '../api/endpoints'
+import { useInstruments } from '../lib/useInstruments'
+import { useLiveQuotes } from '../lib/useLiveQuotes'
 
 const QUICK_ACTIONS: { label: string; to: string; Icon: LucideIcon }[] = [
   { label: 'Options Chain', to: '/options', Icon: BarChart3 },
@@ -48,7 +49,11 @@ function priceOf(snap?: IndexSnapshot): number | undefined {
 
 function resolveIndex(data: DashboardData | null, id: number, key: 'nifty' | 'sensex') {
   if (!data) return undefined
-  return data[key] ?? data.indices?.find((i) => i.instrument_id === id)
+  return (
+    data[key] ??
+    data.instruments?.find((e) => e.instrument_id === id)?.card ??
+    data.indices?.find((i) => i.instrument_id === id)
+  )
 }
 
 export function DashboardPage() {
@@ -73,15 +78,26 @@ export function DashboardPage() {
     { intervalMs: 30_000 },
   )
 
+  const { catalog } = useInstruments()
+
+  // Live quotes over the WebSocket for the two reference cards + the selected
+  // instrument — prices tick in real time (no polling).
+  const liveIds = useMemo(() => [...new Set([1, 2, instrument])], [instrument])
+  const liveQuotes = useLiveQuotes(liveIds)
+
   const isSensex = instrument === 2
-  const instrumentLabel = INSTRUMENTS.find((i) => i.id === instrument)?.label ?? 'NIFTY 50'
+  const instrumentLabel = catalog.find((i) => i.id === instrument)?.label ?? 'Instrument'
 
   const nifty = resolveIndex(data, 1, 'nifty')
   const sensex = resolveIndex(data, 2, 'sensex')
 
   // Instrument-aware "focused" slice — drives the bias and options panels.
-  const selected = isSensex ? sensex : nifty
-  const selectedSignal = isSensex ? data?.sensex_signal : data?.nifty_signal
+  // Prefer the generic `instruments` list (works for ANY instrument); fall back
+  // to the legacy nifty/sensex fields for older backend responses.
+  const selectedEntry = data?.instruments?.find((e) => e.instrument_id === instrument)
+  const selected = selectedEntry?.card ?? (isSensex ? sensex : nifty)
+  const selectedSignal =
+    selectedEntry?.signal ?? (isSensex ? data?.sensex_signal : data?.nifty_signal)
 
   const vix = selected?.india_vix ?? data?.india_vix ?? data?.vix
   const bias = normalizeBias(
@@ -138,17 +154,17 @@ export function DashboardPage() {
         <MetricCard
           label="NIFTY 50"
           loading={loading}
-          value={<AnimatedNumber value={priceOf(nifty)} format={(n) => formatNumber(n)} />}
-          badge={formatSignedPct(nifty?.change_pct)}
-          badgeColor={(nifty?.change_pct ?? 0) >= 0 ? 'green' : 'red'}
+          value={<AnimatedNumber value={liveQuotes[1]?.last_price ?? priceOf(nifty)} format={(n) => formatNumber(n)} />}
+          badge={formatSignedPct(liveQuotes[1]?.change_pct ?? nifty?.change_pct)}
+          badgeColor={((liveQuotes[1]?.change_pct ?? nifty?.change_pct) ?? 0) >= 0 ? 'green' : 'red'}
           className={!isSensex ? 'ring-2 ring-primary-500 ring-offset-1' : undefined}
         />
         <MetricCard
           label="SENSEX"
           loading={loading}
-          value={<AnimatedNumber value={priceOf(sensex)} format={(n) => formatNumber(n)} />}
-          badge={formatSignedPct(sensex?.change_pct)}
-          badgeColor={(sensex?.change_pct ?? 0) >= 0 ? 'green' : 'red'}
+          value={<AnimatedNumber value={liveQuotes[2]?.last_price ?? priceOf(sensex)} format={(n) => formatNumber(n)} />}
+          badge={formatSignedPct(liveQuotes[2]?.change_pct ?? sensex?.change_pct)}
+          badgeColor={((liveQuotes[2]?.change_pct ?? sensex?.change_pct) ?? 0) >= 0 ? 'green' : 'red'}
           className={isSensex ? 'ring-2 ring-primary-500 ring-offset-1' : undefined}
         />
         <MetricCard

@@ -18,7 +18,7 @@ import { FutureLabPage } from './pages/FutureLabPage'
 import { AnalysePage } from './pages/AnalysePage'
 import { CopilotPage } from './pages/CopilotPage'
 import { AdvancedDashboardPage } from './pages/AdvancedDashboardPage'
-import { SettingsPage } from './pages/SettingsPage'
+import { AccountSettingsPage } from './components/settings/AccountSettingsPage'
 
 function Splash() {
   return (
@@ -100,7 +100,7 @@ export default function App() {
             <Route path="/future-lab" element={<FutureLabPage />} />
             <Route path="/analyse" element={<AnalysePage />} />
             <Route path="/copilot" element={<CopilotPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings" element={<AccountSettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

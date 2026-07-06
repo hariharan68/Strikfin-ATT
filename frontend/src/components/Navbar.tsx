@@ -23,6 +23,7 @@ import {
   Gauge,
   Percent,
   Grid3x3,
+  LayoutDashboard,
   Sigma,
   GitBranch,
   Flame,
@@ -43,6 +44,7 @@ import { cn } from '../lib/format'
 import { useToast } from './ui/Toast'
 import { useTheme } from '../lib/useTheme'
 import { Dropdown, menuItemClass } from './ui/Menu'
+import { InstrumentSearch } from './InstrumentSearch'
 
 // ── Nav entry types ────────────────────────────────────────────────
 
@@ -102,7 +104,22 @@ interface NavSoon {
   hasMenu?: boolean
 }
 
-type NavEntry = NavItem | NavGroup | NavMega | NavSoon
+/** A simple dropdown of plain page links (e.g. "Dashboards"). */
+interface NavMenuLink {
+  label: string
+  to: string
+  icon: LucideIcon
+  isActive: (pathname: string, search: string) => boolean
+}
+
+interface NavMenu {
+  kind: 'menu'
+  label: string
+  isActive: (pathname: string, search: string) => boolean
+  items: NavMenuLink[]
+}
+
+type NavEntry = NavItem | NavGroup | NavMega | NavSoon | NavMenu
 
 // ── Icons ──────────────────────────────────────────────────────────
 
@@ -349,6 +366,60 @@ function MegaDropdown({
   )
 }
 
+/** A simple dropdown of page links (e.g. the "Dashboards" tab). */
+function MenuDropdown({
+  entry,
+  pathname,
+  search,
+}: {
+  entry: NavMenu
+  pathname: string
+  search: string
+}) {
+  const active = entry.isActive(pathname, search)
+  return (
+    <Dropdown
+      align="left"
+      trigger={({ open, toggle }) => (
+        <button type="button" onClick={toggle} className={cn(linkClass(active), 'flex items-center gap-1')}>
+          {entry.label}
+          <ChevronDown open={open} />
+        </button>
+      )}
+    >
+      {(close) => (
+        <div className="w-52">
+          {entry.items.map((item) => {
+            const itemActive = item.isActive(pathname, search)
+            const Icon = item.icon
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                onClick={close}
+                className={cn(
+                  menuItemClass,
+                  itemActive && 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300',
+                )}
+              >
+                <Icon
+                  className={cn(
+                    'h-4 w-4 shrink-0',
+                    itemActive ? 'text-primary-600 dark:text-primary-300' : 'text-slate-400',
+                  )}
+                  strokeWidth={1.75}
+                />
+                <span className="flex-1 leading-snug">{item.label}</span>
+              </Link>
+            )
+          })}
+        </div>
+      )}
+    </Dropdown>
+  )
+}
+
+
 /** An "under development" tab — opens a small coming-soon popover instead of navigating. */
 function SoonTab({ label, hasMenu }: { label: string; hasMenu?: boolean }) {
   return (
@@ -377,10 +448,19 @@ function SoonTab({ label, hasMenu }: { label: string; hasMenu?: boolean }) {
 // ── Nav entries ────────────────────────────────────────────────────
 
 const NAV_ENTRIES: NavEntry[] = [
-  { kind: 'item', label: 'Dashboard', to: '/dashboard', isActive: (p) => p === '/dashboard' },
-  { kind: 'item', label: 'Advance Dashboard', to: '/advanced-dashboard', isActive: (p) => p.startsWith('/advanced-dashboard') },
-
-  { kind: 'item', label: 'Options', to: '/options', isActive: (p) => p.startsWith('/options') && !p.startsWith('/options-lab') },
+  {
+    kind: 'menu',
+    label: 'Dashboards',
+    isActive: (p) =>
+      p === '/dashboard' ||
+      p.startsWith('/advanced-dashboard') ||
+      (p.startsWith('/options') && !p.startsWith('/options-lab')),
+    items: [
+      { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, isActive: (p) => p === '/dashboard' },
+      { label: 'Advance Dashboard', to: '/advanced-dashboard', icon: Gauge, isActive: (p) => p.startsWith('/advanced-dashboard') },
+      { label: 'Options', to: '/options', icon: CandlestickChart, isActive: (p) => p.startsWith('/options') && !p.startsWith('/options-lab') },
+    ],
+  },
   {
     kind: 'mega',
     label: 'Options Lab',
@@ -658,6 +738,16 @@ export function Navbar() {
         {/* Center nav */}
         <nav ref={wrapRef} className="relative flex min-w-0 flex-1 items-center gap-1">
           {shownEntries.map((entry) => {
+            if (entry.kind === 'menu') {
+              return (
+                <MenuDropdown
+                  key={entry.label}
+                  entry={entry}
+                  pathname={location.pathname}
+                  search={location.search}
+                />
+              )
+            }
             if (entry.kind === 'mega') {
               return (
                 <MegaDropdown
@@ -709,6 +799,40 @@ export function Navbar() {
             >
               {(close) =>
                 overflowEntries.map((entry) => {
+                  if (entry.kind === 'menu') {
+                    return (
+                      <div key={entry.label}>
+                        <div className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                          {entry.label}
+                        </div>
+                        {entry.items.map((item) => {
+                          const itemActive = item.isActive(location.pathname, location.search)
+                          const Icon = item.icon
+                          return (
+                            <Link
+                              key={item.to}
+                              to={item.to}
+                              onClick={close}
+                              className={cn(
+                                menuItemClass,
+                                itemActive &&
+                                  'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300',
+                              )}
+                            >
+                              <Icon
+                                className={cn(
+                                  'h-4 w-4 shrink-0',
+                                  itemActive ? 'text-primary-600 dark:text-primary-300' : 'text-slate-400',
+                                )}
+                                strokeWidth={1.75}
+                              />
+                              <span className="flex-1 leading-snug">{item.label}</span>
+                            </Link>
+                          )
+                        })}
+                      </div>
+                    )
+                  }
                   if (entry.kind === 'mega') {
                     return (
                       <div key={entry.label}>
@@ -810,7 +934,7 @@ export function Navbar() {
             {NAV_ENTRIES.map((entry) => (
               <span key={entry.label} className={linkClass(false)}>
                 {entry.label}
-                {(entry.kind === 'group' || entry.kind === 'mega' || (entry.kind === 'soon' && entry.hasMenu)) && <> ▾</>}
+                {(entry.kind === 'group' || entry.kind === 'mega' || entry.kind === 'menu' || (entry.kind === 'soon' && entry.hasMenu)) && <> ▾</>}
               </span>
             ))}
           </div>
@@ -818,6 +942,9 @@ export function Navbar() {
 
         {/* Right side */}
         <div className="flex shrink-0 items-center gap-1.5">
+          {/* Global instrument search — switch to any instrument */}
+          <InstrumentSearch />
+
           <button
             type="button"
             onClick={toggle}

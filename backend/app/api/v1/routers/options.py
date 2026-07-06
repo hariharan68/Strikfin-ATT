@@ -20,7 +20,7 @@ router = APIRouter(prefix="/options", tags=["options"])
 
 @router.get("/{instrument_id}/metrics")
 async def options_metrics(
-    instrument_id: int = Path(..., ge=1, le=2),
+    instrument_id: int = Path(..., ge=1),
     db: DBSession = None,
     _uid: CurrentUserId = None,
 ):
@@ -52,7 +52,7 @@ async def options_metrics(
 
 @router.get("/{instrument_id}/chain")
 async def options_chain(
-    instrument_id: int = Path(..., ge=1, le=2),
+    instrument_id: int = Path(..., ge=1),
     db: DBSession = None,
     _uid: CurrentUserId = None,
 ):

@@ -14,6 +14,7 @@ import EChartsReactCore from 'echarts-for-react/esm/core'
 import type EChartsReactCoreType from 'echarts-for-react/esm/core'
 import type { EChartsOption, SeriesOption } from 'echarts'
 import { useTheme } from '../../lib/useTheme'
+import { usePreferences } from '../../lib/usePreferences'
 import { fmtOI } from './OpenInterestChart'
 
 echarts.use([
@@ -126,6 +127,7 @@ export function MultiLineChart({
 }: Props) {
   const chartRef = useRef<EChartsReactCoreType>(null)
   const { theme } = useTheme()
+  const { showChartTooltip } = usePreferences()
   const [zoomed, setZoomed] = useState(false)
 
   const n = times.length
@@ -237,6 +239,7 @@ export function MultiLineChart({
         pageTextStyle: { color: c.axisLabel },
       },
       tooltip: {
+        show: showChartTooltip,
         trigger: 'axis',
         transitionDuration: 0.12,
         backgroundColor: c.cardBg,
@@ -370,7 +373,7 @@ export function MultiLineChart({
       series: dataSeries,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [series, future, futAvail, tms, t0, t1, signed, fmtY, theme])
+  }, [series, future, futAvail, tms, t0, t1, signed, fmtY, theme, showChartTooltip])
 
   // Initial option — includes the legend's initial Future visibility. Later
   // legend clicks are user state; updates never overwrite them (the merged

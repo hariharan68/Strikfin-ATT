@@ -16,6 +16,7 @@ from app.core.deps import CurrentUserId, DBSession
 from app.domain.schemas import CopilotRequest, CopilotResponse
 from app.engines.options_math import ChainRow, oi_walls, pcr_oi
 from app.ingestion.providers import get_news_headlines, get_option_chain, get_spot
+from app.instruments import snapshot as _snapshot
 from app.services.signal_service import SignalService
 
 logger = logging.getLogger(__name__)
@@ -89,7 +90,7 @@ async def _build_context(
     headlines = get_news_headlines(5)
 
     return {
-        "instrument":       "NIFTY50" if inst_id == 1 else "SENSEX",
+        "instrument":       _snapshot.get(inst_id).symbol if _snapshot.get(inst_id) else "UNKNOWN",
         "spot":             spot,
         "change_pct":       change_pct,
         "india_vix":        spot_data.get("india_vix"),

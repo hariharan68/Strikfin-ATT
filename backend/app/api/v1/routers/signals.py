@@ -18,7 +18,7 @@ router = APIRouter(prefix="/signals", tags=["signals"])
     response_model=AISignalOut,
 )
 async def latest_signal(
-    instrument_id: int = Path(..., ge=1, le=2),
+    instrument_id: int = Path(..., ge=1),
     db: DBSession = None,
     _uid: CurrentUserId = None,
 ):
@@ -55,7 +55,7 @@ async def latest_signal(
 
 @router.get("/{instrument_id}/accuracy")
 async def signal_accuracy(
-    instrument_id: int = Path(..., ge=1, le=2),
+    instrument_id: int = Path(..., ge=1),
     lookback_days: int = Query(90, ge=1, le=365),
     db: DBSession = None,
     _uid: CurrentUserId = None,
@@ -71,7 +71,7 @@ async def signal_accuracy(
 
 @router.post("/{instrument_id}/score")
 async def score_signals(
-    instrument_id: int = Path(..., ge=1, le=2),
+    instrument_id: int = Path(..., ge=1),
     lookback_days: int = Query(30, ge=1, le=180),
     db: DBSession = None,
     _uid: CurrentUserId = None,

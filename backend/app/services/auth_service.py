@@ -20,7 +20,8 @@ from app.core.security import (
 )
 from app.core.config import settings
 from app.db.models import AuditLog, RefreshToken, User
-from app.domain.schemas import RegisterRequest, TokenResponse, UserOut
+from app.domain.schemas import ProfileUpdate, RegisterRequest, TokenResponse, UserOut
+from app.tenancy.org_service import provision_personal_org, resolve_active_org
 
 
 class AuthService:
@@ -52,6 +53,9 @@ class AuthService:
         )
         self.db.add(user)
         await self.db.flush()  # get user_id before audit log
+
+        # Give every new user a personal organization (they're its owner).
+        await provision_personal_org(self.db, user)
 
         # Audit
         self.db.add(AuditLog(
@@ -92,8 +96,18 @@ class AuthService:
         if not user.is_active:
             raise AuthenticationError("Account is disabled")
 
-        # Issue tokens
-        access_token = create_access_token(user.user_id)
+        # Resolve the active org (lazily provision one for pre-M5 users), then
+        # mint the token with org + role claims.
+        active = await resolve_active_org(self.db, user.user_id)
+        if active is None:
+            await provision_personal_org(self.db, user)
+            active = await resolve_active_org(self.db, user.user_id)
+
+        access_token = create_access_token(
+            user.user_id,
+            org_id=active.org_id if active else None,
+            role=active.role if active else None,
+        )
         raw_refresh, expires_at = create_refresh_token()
 
         # Store hashed refresh token
@@ -147,8 +161,13 @@ class AuthService:
         # Revoke old token
         stored.revoked_at = now
 
-        # Issue new pair
-        new_access = create_access_token(stored.user_id)
+        # Issue new pair (carry the active org + role claims forward).
+        active = await resolve_active_org(self.db, stored.user_id)
+        new_access = create_access_token(
+            stored.user_id,
+            org_id=active.org_id if active else None,
+            role=active.role if active else None,
+        )
         raw_new_refresh, expires_at = create_refresh_token()
 
         self.db.add(RefreshToken(
@@ -209,4 +228,25 @@ class AuthService:
         if not user:
             from app.core.exceptions import NotFoundError
             raise NotFoundError("User")
+        return UserOut.model_validate(user)
+
+    # ── Update profile ────────────────────────────────────────
+    async def update_profile(self, user_id: int, body: ProfileUpdate) -> UserOut:
+        """Partial profile update (display_name / phone / state). Only fields
+        explicitly provided in the request body are applied."""
+        result = await self.db.execute(
+            select(User).where(User.user_id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            from app.core.exceptions import NotFoundError
+            raise NotFoundError("User")
+
+        changes = body.model_dump(exclude_unset=True)
+        for field, value in changes.items():
+            setattr(user, field, value)
+
+        if changes:
+            await self.db.commit()
+            await self.db.refresh(user)
         return UserOut.model_validate(user)

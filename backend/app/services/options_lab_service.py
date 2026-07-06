@@ -32,18 +32,23 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 from app.db.models import IndexLiveData, OptionChainRow, OptionChainSnapshot
 from app.engines.options_math import (
     ChainRow,
-    LOT_SIZE,
     atm_strike,
     max_pain,
     pcr_oi,
 )
+from app.instruments import snapshot as instrument_snapshot
 from app.ingestion.providers import get_futures, get_option_chain, get_spot
 
 logger = logging.getLogger(__name__)
 
-_SYMBOLS = {1: "NIFTY 50", 2: "SENSEX"}
 _MARKET_OPEN = time(9, 15)
 _MARKET_CLOSE = time(15, 30)
+
+
+def _symbol(instrument_id: int) -> str:
+    """Instrument display label from the master (was a hardcoded per-id dict)."""
+    r = instrument_snapshot.get(instrument_id)
+    return r.label if r else "UNKNOWN"
 
 
 def _f(v) -> float:
@@ -145,11 +150,11 @@ class OptionsLabService:
 
         return {
             "instrument_id":      instrument_id,
-            "symbol":             _SYMBOLS.get(instrument_id, "NIFTY 50"),
+            "symbol":             _symbol(instrument_id),
             "spot":               round(spot, 2),
             "atm_strike":         atm,
             "max_pain":           mp,
-            "lot_size":           LOT_SIZE.get(instrument_id, 65),
+            "lot_size":           instrument_snapshot.lot_size(instrument_id),
             "pcr_oi":             pcr_now,
             "pcr_change":         round(pcr_now - pcr_open, 2),
             "open_ts":            open_ts,
@@ -316,8 +321,8 @@ class OptionsLabService:
         quality = "intraday" if real_points >= 2 else "live_proxy"
         return {
             "instrument_id": instrument_id,
-            "symbol":        _SYMBOLS.get(instrument_id, "NIFTY 50"),
-            "lot_size":      LOT_SIZE.get(instrument_id, 65),
+            "symbol":        _symbol(instrument_id),
+            "lot_size":      instrument_snapshot.lot_size(instrument_id),
             "spot":          round(spot, 2),
             "atm_strike":    atm,
             "trade_date":    latest.trade_date.isoformat(),
@@ -442,7 +447,7 @@ class OptionsLabService:
 
         return {
             "instrument_id":   instrument_id,
-            "symbol":          _SYMBOLS.get(instrument_id, "NIFTY 50"),
+            "symbol":          _symbol(instrument_id),
             "trade_date":      trade_date.isoformat(),
             "open_ts":         min(all_ts) if all_ts else None,
             "now_ts":          max(all_ts) if all_ts else None,
@@ -458,7 +463,7 @@ class OptionsLabService:
     def _empty_price_oi(self, instrument_id: int) -> dict:
         return {
             "instrument_id":    instrument_id,
-            "symbol":           _SYMBOLS.get(instrument_id, "NIFTY 50"),
+            "symbol":           _symbol(instrument_id),
             "trade_date":       datetime.now(_IST).date().isoformat(),
             "open_ts":          None,
             "now_ts":           None,
@@ -715,8 +720,8 @@ class OptionsLabService:
         if not rows:
             return {
                 "instrument_id": instrument_id,
-                "symbol":        _SYMBOLS.get(instrument_id, "NIFTY 50"),
-                "lot_size":      LOT_SIZE.get(instrument_id, 65),
+                "symbol":        _symbol(instrument_id),
+                "lot_size":      instrument_snapshot.lot_size(instrument_id),
                 "spot":          0.0,
                 "atm_strike":    0.0,
                 "trade_date":    datetime.now(_IST).date().isoformat(),
@@ -756,8 +761,8 @@ class OptionsLabService:
 
         return {
             "instrument_id": instrument_id,
-            "symbol":        _SYMBOLS.get(instrument_id, "NIFTY 50"),
-            "lot_size":      LOT_SIZE.get(instrument_id, 65),
+            "symbol":        _symbol(instrument_id),
+            "lot_size":      instrument_snapshot.lot_size(instrument_id),
             "spot":          round(spot, 2),
             "atm_strike":    atm,
             "trade_date":    datetime.now(_IST).date().isoformat(),
@@ -992,11 +997,11 @@ class OptionsLabService:
     def _empty_payload(self, instrument_id: int) -> dict:
         return {
             "instrument_id":     instrument_id,
-            "symbol":            _SYMBOLS.get(instrument_id, "NIFTY 50"),
+            "symbol":            _symbol(instrument_id),
             "spot":              0.0,
             "atm_strike":        0.0,
             "max_pain":          0.0,
-            "lot_size":          LOT_SIZE.get(instrument_id, 65),
+            "lot_size":          instrument_snapshot.lot_size(instrument_id),
             "pcr_oi":            0.0,
             "pcr_change":        0.0,
             "open_ts":           None,

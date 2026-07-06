@@ -158,10 +158,12 @@ def oi_walls(
 # ATM STRIKE
 # ─────────────────────────────────────────────────────────────
 
-def atm_strike(spot: float, strikes: list[float]) -> float:
-    """Nearest strike to current spot price."""
+def atm_strike(spot: float, strikes: list[float], step: float = 50.0) -> float:
+    """Nearest strike to current spot price. `step` (the instrument's strike
+    step) is only used as a fallback when no strikes are provided."""
     if not strikes:
-        return round(spot / 50) * 50  # fallback
+        step = step or 50.0
+        return round(spot / step) * step  # fallback
     return min(strikes, key=lambda s: abs(s - spot))
 
 
@@ -344,8 +346,9 @@ def iv_percentile_label(pct: Optional[float]) -> Optional[str]:
 # GAMMA EXPOSURE (GEX)
 # ─────────────────────────────────────────────────────────────
 
-# Contract lot sizes for notional scaling. Update if the exchange revises them.
-LOT_SIZE = {1: 65, 2: 20}  # 1=NIFTY, 2=SENSEX
+# Lot size is now sourced per-instrument from the Instrument Master
+# (app.instruments.snapshot.lot_size) and passed in explicitly — no hardcoded
+# per-id dict here. net_gex already takes lot_size as an argument.
 
 
 def net_gex(rows: list[dict], spot: float, lot_size: int) -> Optional[float]:

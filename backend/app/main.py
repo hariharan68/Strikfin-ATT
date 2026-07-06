@@ -22,7 +22,10 @@ from app.core.exceptions import AppError, to_http_exception
 
 # ── Routers ───────────────────────────────────────────────────
 from app.api.v1.routers.auth         import router as auth_router
+from app.api.v1.routers.tenancy      import router as tenancy_router
+from app.api.v1.routers.preferences  import router as preferences_router
 from app.api.v1.routers.dashboard    import router as dashboard_router
+from app.api.v1.routers.instruments  import router as instruments_router
 from app.api.v1.routers.index        import router as index_router
 from app.api.v1.routers.options      import router as options_router
 from app.api.v1.routers.options_lab  import router as options_lab_router
@@ -33,6 +36,7 @@ from app.api.v1.routers.institutional import router as institutional_router
 from app.api.v1.routers.sentiment    import router as sentiment_router
 from app.api.v1.routers.copilot      import router as copilot_router
 from app.api.v1.routers.fyers_auth import router as fyers_auth_router
+from app.websocket.router      import router as ws_router
 
 # ── Logger ────────────────────────────────────────────────────
 logging.basicConfig(
@@ -58,16 +62,18 @@ async def lifespan(app: FastAPI):
     """
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION} ...")
 
-    # Auto-create tables in development
-    # Production uses Alembic migrations instead
+    # Schema is Alembic-managed (single source of truth). In development we run
+    # `alembic upgrade head` at startup for convenience so a fresh checkout is
+    # ready without a manual step. We do NOT use Base.metadata.create_all — it
+    # creates tables ahead of migrations, which then fail ("already exists") and
+    # skips seed/RLS. Prod runs `alembic upgrade head` in the deploy pipeline.
     if settings.APP_ENV == "development":
         try:
-            from app.db.session import create_all_tables
-            await create_all_tables()
-            logger.info("✓ Database tables ready")
+            await _run_migrations()
+            logger.info("✓ Database migrated to head (Alembic)")
         except Exception as e:
-            logger.error(f"✗ DB table creation failed: {e}")
-            logger.warning("  Continuing without DB — check PostgreSQL connection")
+            logger.error(f"✗ DB migration failed: {e}")
+            logger.warning("  Continuing — check PostgreSQL / run `uv run alembic upgrade head`")
 
         try:
             await _seed_instruments()
@@ -75,12 +81,40 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"  Instrument seed skipped: {e}")
 
+    # Hydrate the sync instrument snapshot the market-data providers read from
+    # (symbols / strike_step / expiry_rule) — replaces their hardcoded dicts.
+    try:
+        from app.db.session import AsyncSessionLocal
+        from app.instruments import snapshot as instrument_snapshot
+        async with AsyncSessionLocal() as _db:
+            n = await instrument_snapshot.refresh(_db)
+        logger.info(f"✓ Instrument snapshot hydrated ({n} active)")
+    except Exception as e:
+        logger.warning(f"  Instrument snapshot hydration skipped: {e}")
+
+    # Hydrate the in-memory Fyers token from the durable encrypted DB store
+    # (broker_connections). Falls back to the .env value already in token_store.
+    try:
+        from app.db.session import AsyncSessionLocal
+        from app.brokers.connections import load_fyers_token_into_store
+        async with AsyncSessionLocal() as _db:
+            await load_fyers_token_into_store(_db)
+    except Exception as e:
+        logger.warning(f"  Fyers token hydration skipped: {e}")
+
     # Background ingestion + signal scoring (real ATR/ADX history + accuracy)
     try:
         from app.ingestion.scheduler import start_background_jobs
         start_background_jobs()
     except Exception as e:
         logger.warning(f"  Background jobs not started: {e}")
+
+    # Real-time WS publisher (pushes live quotes/OI to subscribers)
+    try:
+        from app.websocket.publisher import start_publisher
+        start_publisher()
+    except Exception as e:
+        logger.warning(f"  WS publisher not started: {e}")
 
     from app.core.banner import print_startup_banner
     print_startup_banner()
@@ -94,46 +128,44 @@ async def lifespan(app: FastAPI):
         await stop_background_jobs()
     except Exception:
         pass
+    try:
+        from app.websocket.publisher import stop_publisher
+        await stop_publisher()
+    except Exception:
+        pass
     from app.db.session import dispose_engine
     await dispose_engine()
     logger.info("✓ DB engine disposed. Goodbye.")
 
 
+async def _run_migrations() -> None:
+    """Bring the DB schema to head via Alembic. Runs in a worker thread because
+    Alembic's env.py drives its own asyncio loop (asyncio.run), which can't be
+    nested inside the running lifespan loop."""
+    import asyncio
+    from pathlib import Path
+    from alembic import command
+    from alembic.config import Config
+
+    backend_dir = Path(__file__).resolve().parent.parent  # …/backend
+    cfg = Config(str(backend_dir / "alembic.ini"))
+    cfg.set_main_option("script_location", str(backend_dir / "alembic"))
+    await asyncio.to_thread(command.upgrade, cfg, "head")
+
+
 async def _seed_instruments() -> None:
     """
-    Insert NIFTY50 and SENSEX rows if they don't already exist.
-    Safe to call multiple times — checks before inserting.
+    Upsert the built-in instruments (NIFTY50, SENSEX) with their full master
+    data from app/instruments/seed.py. Idempotent — safe to call on every
+    startup. Rich attributes (strike_step, expiry_rule, vendor_symbols, …) live
+    in the DB, not in hardcoded per-id dicts.
     """
-    from sqlalchemy import select
     from app.db.session import AsyncSessionLocal
-    from app.db.models import Instrument
-
-    instruments = [
-        Instrument(
-            instrument_id=1,
-            symbol="NIFTY50",
-            exchange="NSE",
-            lot_size=65,
-            is_active=True,
-        ),
-        Instrument(
-            instrument_id=2,
-            symbol="SENSEX",
-            exchange="BSE",
-            lot_size=20,
-            is_active=True,
-        ),
-    ]
+    from app.instruments.service import upsert_instruments
+    from app.instruments.seed import DEFAULT_INSTRUMENTS
 
     async with AsyncSessionLocal() as db:
-        for inst in instruments:
-            result = await db.execute(
-                select(Instrument).where(
-                    Instrument.instrument_id == inst.instrument_id
-                )
-            )
-            if not result.scalar_one_or_none():
-                db.add(inst)
+        await upsert_instruments(db, DEFAULT_INSTRUMENTS)
         await db.commit()
 
 
@@ -188,7 +220,10 @@ def create_app() -> FastAPI:
     PREFIX = "/api/v1"
 
     app.include_router(auth_router,          prefix=PREFIX)
+    app.include_router(tenancy_router,       prefix=PREFIX)
+    app.include_router(preferences_router,   prefix=PREFIX)
     app.include_router(dashboard_router,     prefix=PREFIX)
+    app.include_router(instruments_router,   prefix=PREFIX)
     app.include_router(index_router,         prefix=PREFIX)
     app.include_router(options_router,       prefix=PREFIX)
     app.include_router(options_lab_router,   prefix=PREFIX)
@@ -200,6 +235,7 @@ def create_app() -> FastAPI:
     app.include_router(sentiment_router,     prefix=PREFIX)
     app.include_router(copilot_router,       prefix=PREFIX)
     app.include_router(fyers_auth_router,    prefix=PREFIX)  # ← ADD HERE
+    app.include_router(ws_router,            prefix=PREFIX)  # WSS /api/v1/ws
 
     # ── Health check ──────────────────────────────────────────
     @app.get("/health", tags=["health"])

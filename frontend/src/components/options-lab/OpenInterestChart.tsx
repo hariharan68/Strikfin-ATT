@@ -13,6 +13,7 @@ import type EChartsReactCoreType from 'echarts-for-react/esm/core'
 import type { BarSeriesOption, EChartsOption } from 'echarts'
 import { formatInt } from '../../lib/format'
 import { useTheme } from '../../lib/useTheme'
+import { callPutColors, usePreferences } from '../../lib/usePreferences'
 
 echarts.use([
   BarChart,
@@ -51,9 +52,8 @@ interface Props {
   nowLabel: string
 }
 
-// ── Bars (vivid Call=green / Put=red — identical in every theme) ──
-const CALL = '#22c55e' // green-500
-const PUT = '#ef4444' // red-500
+// Bar colours (Call vs Put) come from the user's call/put scheme preference —
+// see `callPutColors` in lib/usePreferences (classic: Call=green/Put=red).
 const CHART_H = 424
 // Per-strike group width — the chart scrolls horizontally past this many strikes.
 const GROUP_PX = 58
@@ -167,6 +167,7 @@ export function OpenInterestChart({
 }: Props) {
   const chartRef = useRef<EChartsReactCoreType>(null)
   const { isDark } = useTheme()
+  const { showChartTooltip, callPutScheme } = usePreferences()
 
   const barByStrike = useMemo(() => {
     const m = new Map<number, OIBar>()
@@ -176,6 +177,7 @@ export function OpenInterestChart({
 
   const buildOption = useCallback((): EChartsOption => {
     const C = chromeFor(isDark)
+    const { call: CALL, put: PUT } = callPutColors(callPutScheme)
     const fontFamily = getComputedStyle(document.body).fontFamily
     const strikes = bars.map((b) => b.strike)
     const cats = strikes.map((s) => String(s))
@@ -363,6 +365,7 @@ export function OpenInterestChart({
       textStyle: { fontFamily },
       grid: { left: 8, right: 18, top: 38, bottom: 30, containLabel: true },
       tooltip: {
+        show: showChartTooltip,
         trigger: 'axis',
         axisPointer: { type: 'shadow', shadowStyle: { color: C.hoverCol } },
         backgroundColor: C.tipBg,
@@ -433,7 +436,7 @@ export function OpenInterestChart({
       series,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bars, mode, spot, atmStrike, maxPain, lotSize, showLot, openLabel, nowLabel, isDark, barByStrike])
+  }, [bars, mode, spot, atmStrike, maxPain, lotSize, showLot, openLabel, nowLabel, isDark, barByStrike, callPutScheme, showChartTooltip])
 
   const initialOption = useMemo(() => buildOption(), [])
   // Live polls / mode / theme changes mutate the existing instance. replaceMerge
@@ -446,6 +449,7 @@ export function OpenInterestChart({
   }, [buildOption])
 
   const C = chromeFor(isDark)
+  const { call: CALL, put: PUT } = callPutColors(callPutScheme)
   const minWidth = Math.max(560, bars.length * GROUP_PX)
 
   return (

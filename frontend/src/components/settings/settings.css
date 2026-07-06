@@ -1,0 +1,729 @@
+/* ────────────────────────────────────────────────────────────────
+   Strikfin — Account Settings design system.
+   A calm, minimal, data-product look. Fully scoped under `.stk-settings`
+   with its own fixed light-indigo palette + fonts, deliberately decoupled
+   from the app's 4-theme system so /settings always reads the same.
+   ──────────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+.stk-settings {
+  /* palette — mapped onto the app's theme CSS variables so the settings page
+     follows all four themes (classic/warm/dark/terminal) automatically. The
+     app remaps the slate scale (dark), primary + low slate steps (warm/
+     terminal), and surface/app-card per theme; emerald/rose stay stable. */
+  --stk-bg: var(--color-surface);
+  --stk-surface: var(--app-card, #ffffff);
+  --stk-border: var(--color-slate-200);
+  --stk-border-soft: var(--color-slate-100);
+  --stk-text: var(--color-slate-900);
+  --stk-muted: var(--color-slate-500);
+  --stk-faint: var(--color-slate-400);
+  --stk-accent: var(--color-primary-600);
+  --stk-accent-soft: color-mix(in srgb, var(--color-primary-600) 12%, transparent);
+  /* Call/Put stay semantic (match the chart legend colours), not theme-tinted. */
+  --stk-call: #22c55e;
+  --stk-put: #ef4444;
+  /* shape */
+  --stk-r-sm: 8px;
+  --stk-r: 14px;
+  --stk-r-lg: 16px;
+  /* fonts */
+  --stk-head: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --stk-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --stk-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  background: var(--stk-bg);
+  color: var(--stk-text);
+  font-family: var(--stk-body);
+  border-radius: var(--stk-r-lg);
+  padding: clamp(16px, 3vw, 32px);
+  -webkit-font-smoothing: antialiased;
+}
+
+.stk-settings *,
+.stk-settings *::before,
+.stk-settings *::after {
+  box-sizing: border-box;
+}
+
+/* ── Layout ─────────────────────────────────────────────────── */
+.stk-shell {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.stk-aside {
+  position: sticky;
+  top: 96px;
+}
+@media (max-width: 900px) {
+  .stk-shell {
+    grid-template-columns: 1fr;
+  }
+  .stk-aside {
+    position: static;
+  }
+}
+
+/* ── Card + section primitives ──────────────────────────────── */
+.stk-card {
+  background: var(--stk-surface);
+  border: 1px solid var(--stk-border);
+  border-radius: var(--stk-r);
+  padding: 20px;
+}
+.stk-section-title {
+  font-family: var(--stk-head);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--stk-muted);
+  margin: 0 0 12px;
+}
+.stk-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Profile card ───────────────────────────────────────────── */
+.stk-profile__head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.stk-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.stk-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--stk-head);
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--stk-accent);
+  background: var(--stk-accent-soft);
+}
+.stk-avatar-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--stk-accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--stk-surface);
+}
+.stk-profile__name {
+  font-family: var(--stk-head);
+  font-weight: 600;
+  font-size: 18px;
+  margin: 0;
+  color: var(--stk-text);
+  line-height: 1.2;
+}
+.stk-tag {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--stk-accent-soft);
+  color: var(--stk-accent);
+  font-family: var(--stk-head);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+/* Field rows */
+.stk-fields {
+  display: flex;
+  flex-direction: column;
+}
+.stk-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--stk-border-soft);
+}
+.stk-field:first-child {
+  border-top: none;
+}
+.stk-field__label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--stk-faint);
+  margin-bottom: 3px;
+}
+.stk-field__value {
+  font-family: var(--stk-mono);
+  font-size: 13px;
+  color: var(--stk-text);
+  word-break: break-all;
+}
+.stk-field__edit {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--stk-faint);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: var(--stk-r-sm);
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.stk-field:hover .stk-field__edit {
+  opacity: 1;
+}
+.stk-field__edit:hover {
+  color: var(--stk-accent);
+  background: var(--stk-accent-soft);
+}
+@media (hover: none) {
+  .stk-field__edit {
+    opacity: 1;
+  } /* always show on touch */
+}
+
+/* ── Segmented pill tabs ────────────────────────────────────── */
+.stk-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--stk-border-soft);
+  border-radius: 999px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.stk-tabs::-webkit-scrollbar {
+  display: none;
+}
+.stk-tab {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-family: var(--stk-head);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--stk-muted);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.stk-tab:hover {
+  color: var(--stk-text);
+}
+.stk-tab.is-active {
+  background: var(--stk-accent);
+  color: #fff;
+}
+.stk-panel {
+  margin-top: 20px;
+}
+
+/* ── Toggle row + iOS switch ────────────────────────────────── */
+.stk-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.stk-toggle-row__title {
+  font-family: var(--stk-head);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--stk-text);
+}
+.stk-toggle-row__desc {
+  font-size: 13px;
+  color: var(--stk-muted);
+  margin-top: 2px;
+}
+.stk-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  background: var(--color-slate-300);
+  transition: background 0.16s ease;
+}
+.stk-switch.is-on {
+  background: var(--stk-accent);
+}
+.stk-switch__thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(20, 22, 28, 0.25);
+  transition: transform 0.16s ease;
+}
+.stk-switch.is-on .stk-switch__thumb {
+  transform: translateX(18px);
+}
+
+/* ── Radio option cards (call/put scheme) ───────────────────── */
+.stk-radio-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 480px) {
+  .stk-radio-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.stk-radio-card {
+  text-align: left;
+  cursor: pointer;
+  background: var(--stk-surface);
+  border: 1px solid var(--stk-border);
+  border-radius: var(--stk-r-sm);
+  padding: 14px;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.stk-radio-card:hover {
+  border-color: var(--stk-faint);
+}
+.stk-radio-card.is-selected {
+  border-color: var(--stk-accent);
+  background: var(--stk-accent-soft);
+}
+.stk-radio-card__name {
+  font-family: var(--stk-head);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--stk-text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.stk-radio-card__preview {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+}
+.stk-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--stk-mono);
+  font-size: 11px;
+  color: var(--stk-muted);
+}
+.stk-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.stk-check {
+  color: var(--stk-accent);
+}
+
+/* ── Theme picker grid ──────────────────────────────────────── */
+.stk-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+@media (max-width: 720px) {
+  .stk-theme-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.stk-theme-card {
+  position: relative;
+  text-align: left;
+  cursor: pointer;
+  background: var(--stk-surface);
+  border: 1px solid var(--stk-border);
+  border-radius: 12px;
+  padding: 10px;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.stk-theme-card:hover {
+  border-color: var(--stk-faint);
+}
+.stk-theme-card.is-active {
+  border-color: var(--stk-accent);
+  box-shadow: 0 0 0 3px var(--stk-accent-soft);
+}
+.stk-theme-preview {
+  height: 74px;
+  border-radius: var(--stk-r-sm);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stk-theme-preview__bar {
+  height: 7px;
+  width: 42%;
+  border-radius: 999px;
+}
+.stk-theme-preview__panel {
+  margin-top: 2px;
+  border-radius: 6px;
+  padding: 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.stk-theme-preview__line {
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(120, 128, 145, 0.4);
+}
+.stk-theme-card__name {
+  font-family: var(--stk-head);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--stk-text);
+  margin-top: 10px;
+}
+.stk-theme-card__desc {
+  font-size: 11px;
+  color: var(--stk-muted);
+  margin-top: 2px;
+}
+.stk-active-pill {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--stk-accent);
+  color: #fff;
+  font-family: var(--stk-head);
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+}
+
+/* ── Buttons ────────────────────────────────────────────────── */
+.stk-btn {
+  font-family: var(--stk-head);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: var(--stk-r-sm);
+  border: 1px solid var(--stk-border);
+  background: var(--stk-surface);
+  color: var(--stk-text);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
+}
+.stk-btn:hover {
+  background: var(--stk-border-soft);
+}
+.stk-btn--primary {
+  background: var(--stk-accent);
+  border-color: var(--stk-accent);
+  color: #fff;
+}
+.stk-btn--primary:hover {
+  background: var(--color-primary-700);
+}
+.stk-btn--danger {
+  background: var(--stk-surface);
+  border-color: var(--stk-border);
+  color: var(--stk-put);
+}
+.stk-btn--danger:hover {
+  background: color-mix(in srgb, var(--stk-put) 14%, transparent);
+  border-color: var(--stk-put);
+}
+.stk-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ── Plans ──────────────────────────────────────────────────── */
+.stk-plan__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.stk-plan__name {
+  font-family: var(--stk-head);
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--stk-text);
+}
+.stk-plan__price {
+  font-family: var(--stk-mono);
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--stk-text);
+}
+.stk-plan__renew {
+  font-size: 12px;
+  color: var(--stk-muted);
+  margin-top: 2px;
+}
+.stk-plan__renew b {
+  font-family: var(--stk-mono);
+  font-weight: 500;
+  color: var(--stk-text);
+}
+.stk-plan__features {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.stk-plan__feature {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--stk-border-soft);
+  font-size: 13px;
+}
+.stk-plan__feature:first-child {
+  border-top: none;
+}
+.stk-plan__feature-on {
+  color: var(--stk-call);
+  line-height: 0;
+}
+.stk-plan__feature-off {
+  color: var(--stk-faint);
+  line-height: 0;
+}
+.stk-plan__feature-label {
+  flex: 1;
+  color: var(--stk-text);
+}
+.stk-plan__feature-value {
+  font-family: var(--stk-mono);
+  color: var(--stk-text);
+}
+
+/* spinner */
+@keyframes stk-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.stk-spin {
+  animation: stk-spin 0.8s linear infinite;
+}
+
+/* ── Broker rows ────────────────────────────────────────────── */
+.stk-list {
+  display: flex;
+  flex-direction: column;
+}
+.stk-broker-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 4px;
+  border-top: 1px solid var(--stk-border-soft);
+}
+.stk-broker-row:first-child {
+  border-top: none;
+}
+.stk-broker-row__logo {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--stk-r-sm);
+  background: var(--stk-border-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.stk-broker-row__meta {
+  flex: 1;
+  min-width: 0;
+}
+.stk-broker-row__name {
+  font-family: var(--stk-head);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--stk-text);
+}
+.stk-broker-row__status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--stk-muted);
+  margin-top: 2px;
+}
+.stk-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.stk-status-dot--on {
+  background: var(--stk-call);
+}
+.stk-status-dot--off {
+  background: var(--stk-faint);
+}
+
+/* ── Help rows ──────────────────────────────────────────────── */
+.stk-help-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  padding: 16px 12px;
+  border-top: 1px solid var(--stk-border-soft);
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+.stk-help-row:first-child {
+  border-top: none;
+}
+.stk-help-row:hover {
+  background: var(--stk-border-soft);
+}
+.stk-help-row__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--stk-r-sm);
+  background: var(--stk-accent-soft);
+  color: var(--stk-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.stk-help-row__meta {
+  flex: 1;
+  min-width: 0;
+}
+.stk-help-row__title {
+  font-family: var(--stk-head);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--stk-text);
+}
+.stk-help-row__desc {
+  font-size: 12px;
+  color: var(--stk-muted);
+  margin-top: 1px;
+}
+.stk-help-row__arrow {
+  color: var(--stk-faint);
+  flex-shrink: 0;
+}
+
+/* ── Modal ──────────────────────────────────────────────────── */
+.stk-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(20, 22, 28, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.stk-modal {
+  width: 100%;
+  max-width: 400px;
+  background: var(--stk-surface);
+  border: 1px solid var(--stk-border);
+  border-radius: var(--stk-r);
+  overflow: hidden;
+}
+.stk-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--stk-border-soft);
+}
+.stk-modal__title {
+  font-family: var(--stk-head);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--stk-text);
+}
+.stk-modal__close {
+  border: none;
+  background: transparent;
+  color: var(--stk-faint);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--stk-r-sm);
+  line-height: 0;
+}
+.stk-modal__close:hover {
+  background: var(--stk-border-soft);
+  color: var(--stk-text);
+}
+.stk-modal__body {
+  padding: 18px;
+}
+.stk-label {
+  display: block;
+  font-family: var(--stk-head);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--stk-text);
+  margin-bottom: 7px;
+}
+.stk-req {
+  color: var(--stk-put);
+}
+.stk-input,
+.stk-select {
+  width: 100%;
+  font-family: var(--stk-mono);
+  font-size: 13px;
+  color: var(--stk-text);
+  background: var(--stk-surface);
+  border: 1px solid var(--stk-border);
+  border-radius: var(--stk-r-sm);
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.stk-input:focus,
+.stk-select:focus {
+  border-color: var(--stk-accent);
+  box-shadow: 0 0 0 3px var(--stk-accent-soft);
+}
+.stk-modal__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}

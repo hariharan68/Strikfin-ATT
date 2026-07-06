@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { BarChart3, Check, Info, LineChart } from 'lucide-react'
 import { getOILabSeries, INSTRUMENTS } from '../../api/endpoints'
 import type { InstrumentId, OILabSeries } from '../../api/endpoints'
 import { useFetch } from '../../lib/useFetch'
 import { useInstrument } from '../../lib/useInstrument'
+import { callPutColors, usePreferences } from '../../lib/usePreferences'
 import { cn } from '../../lib/format'
 import { Panel } from '../../components/ui/Panel'
 import { LiveClock } from '../../components/ui/LiveClock'
@@ -50,6 +51,7 @@ function upcomingExpiries(from: Date, count = 6) {
 
 export function MultiOiVolumeTool() {
   const [instrument, setInstrument] = useInstrument()
+  const { callPutScheme } = usePreferences()
   const [metric, setMetric] = useState<Metric>('oi')
   const [view, setView] = useState<View>('individual')
   const [highOi, setHighOi] = useState(5)
@@ -59,6 +61,8 @@ export function MultiOiVolumeTool() {
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [selectedExpiry, setSelectedExpiry] = useState(0)
   const [showCustom, setShowCustom] = useState(false)
+  // Tracks which payload the default selection was seeded from (instrument+date).
+  const [seededKey, setSeededKey] = useState<string | null>(null)
 
   const { data, error, loading, refreshing, refetch } = useFetch<OILabSeries>(
     () => getOILabSeries(instrument),
@@ -69,15 +73,18 @@ export function MultiOiVolumeTool() {
   const expiries = useMemo(() => upcomingExpiries(new Date()), [])
   const instShort = INSTRUMENTS.find((x) => x.id === instrument)?.short ?? 'NIFTY'
 
-  // Derive the "High OI" top-N selection from the payload's ranked default_ids.
-  // Re-applies whenever the instrument changes or the High-OI count changes,
-  // but leaves manual selections alone once the user customizes them.
-  const rankedIds = data?.default_ids ?? []
-  useEffect(() => {
-    if (!data) return
-    setSelected(rankedIds.slice(0, highOi))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.instrument_id, data?.trade_date])
+  // Seed the "High OI" default selection SYNCHRONOUSLY the first time a payload
+  // arrives (and whenever the instrument/date changes). Doing this during render
+  // — instead of in an effect — means the chart mounts WITH its per-strike series
+  // already present, rather than mounting empty (only the future line) and
+  // relying on a follow-up update that didn't reliably back-fill until a metric
+  // toggle. This is the React-sanctioned "adjust state when input changes" pattern
+  // (the guard makes it run once per payload key, never looping).
+  const seedKey = data ? `${data.instrument_id}:${data.trade_date}` : null
+  if (seedKey && seedKey !== seededKey) {
+    setSeededKey(seedKey)
+    setSelected((data?.default_ids ?? []).slice(0, highOi))
+  }
 
   // When a High-OI / High-Volume count changes, repopulate the selection from
   // the matching server-side ranking and remember which helper is active.
@@ -148,9 +155,10 @@ export function MultiOiVolumeTool() {
           })
         }
         const lbl = m === 'oi' ? 'OI' : m === 'vol' ? 'Volume' : 'OI Change'
+        const cp = callPutColors(callPutScheme)
         return [
-          { key: 'CALL', label: `Total Call ${lbl}`, color: '#16a34a', values: sum('CE') },
-          { key: 'PUT', label: `Total Put ${lbl}`, color: '#ef4444', values: sum('PE') },
+          { key: 'CALL', label: `Total Call ${lbl}`, color: cp.call, values: sum('CE') },
+          { key: 'PUT', label: `Total Put ${lbl}`, color: cp.put, values: sum('PE') },
         ]
       }
 
@@ -160,7 +168,7 @@ export function MultiOiVolumeTool() {
         return [{ key: id, label: `${c.strike} ${c.type}`, color: colorFor.get(id) ?? '#64748b', values: valuesFor(c.idx) }]
       })
     },
-    [data, selected, hidden, view, contractById, colorFor],
+    [data, selected, hidden, view, contractById, colorFor, callPutScheme],
   )
 
   // Per-series show/hide now lives in each chart's ECharts legend

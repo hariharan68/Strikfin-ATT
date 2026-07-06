@@ -13,10 +13,15 @@ from app.domain.schemas import IndexLevels, IndexSnapshot
 from app.engines.options_math import ChainRow, atm_strike, oi_walls
 from app.ingestion.providers import get_option_chain, get_spot, get_futures
 from app.engines.short_covering import detect_short_covering
+from app.instruments import snapshot as _snapshot
 
 router = APIRouter(prefix="/index", tags=["index"])
 
-_SYMBOLS = {1: "NIFTY50", 2: "SENSEX"}
+
+def _symbol(instrument_id: int) -> str:
+    """Instrument symbol from the master (was a hardcoded {1:'NIFTY50',...} dict)."""
+    r = _snapshot.get(instrument_id)
+    return r.symbol if r else "UNKNOWN"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -28,7 +33,7 @@ _SYMBOLS = {1: "NIFTY50", 2: "SENSEX"}
     response_model=IndexSnapshot,
 )
 async def snapshot(
-    instrument_id: int = Path(..., ge=1, le=2),
+    instrument_id: int = Path(..., ge=1),
     _uid: CurrentUserId = None,
 ):
     """
@@ -40,7 +45,7 @@ async def snapshot(
 
     return IndexSnapshot(
         instrument_id=instrument_id,
-        symbol=_SYMBOLS.get(instrument_id, "UNKNOWN"),
+        symbol=_symbol(instrument_id),
         last_price=data["last_price"],
         open_price=data.get("open_price"),
         high_price=data.get("high_price"),
@@ -61,7 +66,7 @@ async def snapshot(
     response_model=IndexLevels,
 )
 async def levels(
-    instrument_id: int = Path(..., ge=1, le=2),
+    instrument_id: int = Path(..., ge=1),
     _uid: CurrentUserId = None,
 ):
     """
@@ -98,7 +103,7 @@ async def levels(
 
     return IndexLevels(
         instrument_id=instrument_id,
-        symbol=_SYMBOLS.get(instrument_id, "UNKNOWN"),
+        symbol=_symbol(instrument_id),
         spot=spot,
         atm_strike=atm,
         support_zone=walls.get("support"),
@@ -113,7 +118,7 @@ async def levels(
 
 @router.get("/{instrument_id}/futures")
 async def futures(
-    instrument_id: int = Path(..., ge=1, le=2),
+    instrument_id: int = Path(..., ge=1),
     _uid: CurrentUserId = None,
 ):
     """
@@ -144,7 +149,7 @@ async def futures(
 
 @router.get("/{instrument_id}/short-covering")
 async def short_covering(
-    instrument_id: int = Path(..., ge=1, le=2),
+    instrument_id: int = Path(..., ge=1),
     _uid: CurrentUserId = None,
 ):
     """

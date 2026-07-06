@@ -5,6 +5,7 @@ import type { OILabView } from '../../api/endpoints'
 import type { InstrumentId } from '../../api/endpoints'
 import { useFetch } from '../../lib/useFetch'
 import { useInstrument } from '../../lib/useInstrument'
+import { callPutColors, usePreferences } from '../../lib/usePreferences'
 import { cn, formatNumber } from '../../lib/format'
 import { Panel } from '../../components/ui/Panel'
 import { LiveClock } from '../../components/ui/LiveClock'
@@ -510,12 +511,14 @@ function BarPair({
   lot: number
   signed?: boolean
 }) {
+  const { callPutScheme } = usePreferences()
+  const cp = callPutColors(callPutScheme)
   const max = Math.max(1, Math.abs(call), Math.abs(put))
   const fmt = (n: number) => (signed && n > 0 ? '+' : '') + fmtOI(n, showLot, lot)
   return (
     <div className="flex h-44 items-end justify-around gap-6 pt-4">
-      <Bar label="CALL" value={call} max={max} color="#16a34a" text={fmt(call)} />
-      <Bar label="PUT" value={put} max={max} color="#ef4444" text={fmt(put)} />
+      <Bar label="CALL" value={call} max={max} color={cp.call} text={fmt(call)} />
+      <Bar label="PUT" value={put} max={max} color={cp.put} text={fmt(put)} />
     </div>
   )
 }

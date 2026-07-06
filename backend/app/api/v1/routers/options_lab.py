@@ -24,7 +24,7 @@ router = APIRouter(prefix="/options-lab", tags=["options-lab"])
 
 @router.get("/oi/{instrument_id}")
 async def open_interest_view(
-    instrument_id: int = Path(..., ge=1, le=2),
+    instrument_id: int = Path(..., ge=1),
     db: DBSession = None,
     _uid: CurrentUserId = None,
 ):
@@ -41,7 +41,7 @@ async def open_interest_view(
 
 @router.get("/oi-series/{instrument_id}")
 async def oi_series_view(
-    instrument_id: int = Path(..., ge=1, le=2),
+    instrument_id: int = Path(..., ge=1),
     window: int = Query(20, ge=5, le=40, description="Strikes above/below ATM"),
     db: DBSession = None,
     _uid: CurrentUserId = None,

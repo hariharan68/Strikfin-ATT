@@ -4,6 +4,7 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import type { LucideIcon } from 'lucide-react'
 import { BarChart3, Brain, Landmark, Zap, Check, AtSign, Lock, Eye, EyeOff } from 'lucide-react'
 import { getMe, login, register } from '../api/endpoints'
+import { applyServerPreferences } from '../lib/session'
 import { useAuthStore, REFRESH_TOKEN_KEY } from '../stores/authStore'
 import { getErrorMessage } from '../api/client'
 import { useToast } from '../components/ui/Toast'
@@ -69,6 +70,7 @@ export function LoginPage() {
     localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token)
     const me = await getMe()
     setSession(tokens, me)
+    await applyServerPreferences()
   }
 
   async function handleSubmit(e: FormEvent) {

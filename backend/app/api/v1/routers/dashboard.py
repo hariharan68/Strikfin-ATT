@@ -15,6 +15,7 @@ from app.engines.options_math import (
     oi_walls, pcr_oi, writing_posture,
 )
 from app.ingestion.providers import get_option_chain, get_spot
+from app.instruments import snapshot as instrument_snapshot
 from app.services.signal_service import SignalService
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -76,7 +77,7 @@ def _build_index_card(instrument_id: int) -> dict:
     strikes  = sorted({r.strike for r in engine_rows})
     walls    = oi_walls(engine_rows, spot)
     pcr      = pcr_oi(engine_rows)
-    atm      = atm_strike(spot, strikes)
+    atm      = atm_strike(spot, strikes, instrument_snapshot.strike_step(instrument_id))
     mp       = max_pain(engine_rows, strikes) if strikes else atm
     posture  = writing_posture(engine_rows)
 
@@ -129,34 +130,49 @@ def _build_index_card(instrument_id: int) -> dict:
     }
 
 
-def _build_ai_summary(
-    nifty: dict,
-    nifty_signal: dict,
-    sensex_signal: dict,
-) -> str:
-    ns  = nifty_signal
-    ss  = sensex_signal
-    vix = nifty.get("india_vix", 0) or 0
+def _build_ai_summary(entries: list[dict], by_id: dict[int, dict]) -> str:
+    """Generic AI blurb over whatever instruments are configured. The primary
+    instrument (id 1 / NIFTY if present, else the first) anchors VIX/PCR/levels;
+    the rest contribute their bias. Reduces to the old NIFTY+SENSEX text for the
+    default two-instrument setup."""
+    primary = by_id.get(1) or (entries[0] if entries else None)
+    if not primary:
+        return "No instruments configured."
 
+    card = primary["card"]
+    sig = primary["signal"]
+    vix = card.get("india_vix", 0) or 0
     vix_comment = (
         "VIX elevated — exercise caution with position sizing."
-        if vix > 18 else
-        "VIX within normal range."
+        if vix > 18 else "VIX within normal range."
     )
 
-    return (
-        f"NIFTY AI bias: **{ns['bias_label']}** ({ns['confidence']:.0%} confidence). "
-        f"SENSEX AI bias: **{ss['bias_label']}**. "
-        f"India VIX at {vix:.1f} — {vix_comment} "
-        f"PCR at {nifty.get('pcr_oi', 0):.2f}. "
-        f"Support {nifty.get('support')} | "
-        f"Resistance {nifty.get('resistance')}."
+    parts = [
+        f"{primary['label']} AI bias: **{sig['bias_label']}** "
+        f"({sig['confidence']:.0%} confidence)."
+    ]
+    for e in entries:
+        if e["instrument_id"] == primary["instrument_id"]:
+            continue
+        parts.append(f"{e['label']} AI bias: **{e['signal']['bias_label']}**.")
+    parts.append(f"India VIX at {vix:.1f} — {vix_comment}")
+    parts.append(
+        f"PCR at {card.get('pcr_oi', 0):.2f}. "
+        f"Support {card.get('support')} | Resistance {card.get('resistance')}."
     )
+    return " ".join(parts)
 
 
 # ─────────────────────────────────────────────────────────────
 # ENDPOINT
 # ─────────────────────────────────────────────────────────────
+
+# Legacy response key prefixes for the built-in indices — kept so the current
+# (pre-M4) frontend, which reads data.nifty / data.sensex_signal / …, keeps
+# working. The generic `instruments` list is the forward shape; drop this shim
+# once the frontend consumes it (M4).
+_LEGACY_KEYS = {1: "nifty", 2: "sensex"}
+
 
 @router.get("")
 async def dashboard(
@@ -164,52 +180,63 @@ async def dashboard(
     _uid: CurrentUserId,
 ):
     """
-    One-shot composite intelligence snapshot.
-    Fetches NIFTY + SENSEX data concurrently for speed.
+    One-shot composite intelligence snapshot across ALL active instruments.
+
+    Returns a generic `instruments` list; also emits legacy `nifty_*`/`sensex_*`
+    keys for back-compat until the frontend is generalized (M4).
     """
     now = datetime.now(timezone.utc)
+    refs = instrument_snapshot.all_active()
 
-    # Index cards are pure compute (no DB) — safe to run concurrently.
-    nifty, sensex = await asyncio.gather(
-        asyncio.to_thread(_build_index_card, 1),
-        asyncio.to_thread(_build_index_card, 2),
+    # Index cards are pure compute (no DB) — build them all concurrently.
+    cards = await asyncio.gather(
+        *[asyncio.to_thread(_build_index_card, r.instrument_id) for r in refs]
     )
 
     signal_svc = SignalService(db)
-    nifty_signal  = await signal_svc.get_latest_signal(1)
-    sensex_signal = await signal_svc.get_latest_signal(2)
 
-    ns_dict = nifty_signal.model_dump()
-    ss_dict = sensex_signal.model_dump()
+    entries: list[dict] = []
+    by_id: dict[int, dict] = {}
+    for ref, card in zip(refs, cards):
+        chain = card.pop("_chain_rows", [])
+        options = card.pop("_options", {})
+        card.pop("_atm_strike", None)
+        signal = (await signal_svc.get_latest_signal(ref.instrument_id)).model_dump()
+        entry = {
+            "instrument_id": ref.instrument_id,
+            "symbol":        ref.symbol,
+            "label":         ref.label,
+            "card":          card,
+            "signal":        signal,
+            "option_chain":  chain,
+            "options":       options,
+        }
+        entries.append(entry)
+        by_id[ref.instrument_id] = entry
 
-    ai_summary = _build_ai_summary(nifty, ns_dict, ss_dict)
+    ai_summary = _build_ai_summary(entries, by_id)
 
-    # Extract chain / options from BOTH index cards, then strip private keys.
-    # Keeping both instruments' options here (instead of discarding SENSEX) keeps
-    # this aggregate honest — a NIFTY-only `options`/`option_chain` is what made
-    # the dashboard show NIFTY data while SENSEX was selected.
-    nifty_chain    = nifty.pop("_chain_rows", [])
-    nifty_options  = nifty.pop("_options", {})
-    nifty.pop("_atm_strike", None)
-    sensex_chain   = sensex.pop("_chain_rows", [])
-    sensex_options = sensex.pop("_options", {})
-    sensex.pop("_atm_strike", None)
-
-    return {
-        "as_of":                now.isoformat(),
-        "market_hours":         _is_market_hours(),
-        "nifty":                nifty,
-        "sensex":               sensex,
-        "nifty_signal":         ns_dict,
-        "sensex_signal":        ss_dict,
-        "ai_summary":           ai_summary,
-        # Per-instrument options + chain (consumers pick by selected instrument).
-        "nifty_option_chain":   nifty_chain,
-        "nifty_options":        nifty_options,
-        "sensex_option_chain":  sensex_chain,
-        "sensex_options":       sensex_options,
-        # Back-compat: legacy NIFTY-default fields.
-        "option_chain":         nifty_chain,
-        "options":              nifty_options,
-        "disclaimer":           DISCLAIMER,
+    resp: dict = {
+        "as_of":        now.isoformat(),
+        "market_hours": _is_market_hours(),
+        "instruments":  entries,          # ← generic forward shape
+        "ai_summary":   ai_summary,
+        "disclaimer":   DISCLAIMER,
     }
+
+    # ── Back-compat shim (legacy nifty_*/sensex_* keys) ──────────────────────
+    for iid, name in _LEGACY_KEYS.items():
+        e = by_id.get(iid)
+        if not e:
+            continue
+        resp[name] = e["card"]
+        resp[f"{name}_signal"] = e["signal"]
+        resp[f"{name}_option_chain"] = e["option_chain"]
+        resp[f"{name}_options"] = e["options"]
+
+    primary = by_id.get(1)
+    if primary:  # legacy NIFTY-default fields
+        resp["option_chain"] = primary["option_chain"]
+        resp["options"] = primary["options"]
+
+    return resp

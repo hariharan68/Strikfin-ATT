@@ -6,7 +6,7 @@ No DB access here — pure data shapes only.
 """
 from datetime import datetime
 from enum import IntEnum
-from typing import Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, EmailStr, field_validator
 
@@ -16,8 +16,35 @@ from pydantic import BaseModel, EmailStr, field_validator
 # ─────────────────────────────────────────────────────────────
 
 class InstrumentId(IntEnum):
+    # Legacy closed enum — kept for back-compat where a few call sites still
+    # reference NIFTY50/SENSEX by name. Instrument identity is now DB-driven
+    # (Instrument Master); new code should NOT branch on this enum.
     NIFTY50 = 1
     SENSEX  = 2
+
+
+class InstrumentOut(BaseModel):
+    """Public catalog shape for one instrument (GET /instruments*).
+
+    Built from app.instruments.InstrumentRef; omits internal vendor_symbols.
+    Clients should key off `instrument_id` (and may show `label`), never assume
+    the id is 1 or 2.
+    """
+    instrument_id: int
+    uid: Optional[str] = None
+    symbol: str
+    display_name: Optional[str] = None
+    label: str
+    exchange: str
+    segment: Optional[str] = None
+    instrument_type: Optional[str] = None
+    underlying: Optional[str] = None
+    lot_size: int
+    tick_size: Optional[float] = None
+    strike_step: Optional[float] = None
+    expiry_rule: Optional[str] = None
+    status: Optional[str] = None
+    is_active: bool = True
 
 
 class RegimeState(IntEnum):
@@ -77,11 +104,81 @@ class UserOut(BaseModel):
     user_id:       int
     email:         str
     display_name:  Optional[str]
+    phone:         Optional[str] = None
+    state:         Optional[str] = None
+    auth_provider: str = "email"
     is_active:     bool
     created_at:    datetime
     last_login_at: Optional[datetime]
 
     model_config = {"from_attributes": True}
+
+
+class ProfileUpdate(BaseModel):
+    """Partial profile update from the Settings page. All fields optional;
+    only provided (non-None) fields are applied."""
+    display_name: Optional[str] = None
+    phone:        Optional[str] = None
+    state:        Optional[str] = None
+
+    @field_validator("display_name", "phone", "state")
+    @classmethod
+    def not_blank(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            raise ValueError("Value cannot be empty")
+        return v
+
+    @field_validator("display_name")
+    @classmethod
+    def name_len(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v) > 100:
+            raise ValueError("Name too long (max 100)")
+        return v
+
+    @field_validator("phone")
+    @classmethod
+    def phone_len(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v) > 20:
+            raise ValueError("Phone too long (max 20)")
+        return v
+
+    @field_validator("state")
+    @classmethod
+    def state_len(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v) > 64:
+            raise ValueError("State too long (max 64)")
+        return v
+
+
+CallPutScheme = Literal["classic", "inverted"]
+ThemeName = Literal["classic", "warm", "dark", "terminal"]
+
+
+class PreferencesOut(BaseModel):
+    theme:              Optional[ThemeName] = None
+    show_chart_tooltip: bool = True
+    call_put_scheme:    CallPutScheme = "classic"
+
+    model_config = {"from_attributes": True}
+
+
+class PreferencesUpdate(BaseModel):
+    """Partial preferences upsert; only provided fields are applied."""
+    theme:              Optional[ThemeName] = None
+    show_chart_tooltip: Optional[bool] = None
+    call_put_scheme:    Optional[CallPutScheme] = None
+
+
+class PlanOut(BaseModel):
+    key:          str
+    name:         str
+    price_inr:    int  # paise
+    limits:       dict[str, Any]
+    renewal_date: Optional[datetime] = None
+    status:       str = "active"
 
 
 # ─────────────────────────────────────────────────────────────

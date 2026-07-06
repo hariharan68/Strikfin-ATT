@@ -58,7 +58,7 @@ def _category_weight(category: str) -> float:
 
 @router.get("/{instrument_id}")
 async def sentiment(
-    instrument_id: int = Path(..., ge=1, le=2),
+    instrument_id: int = Path(..., ge=1),
     _uid: CurrentUserId = None,
 ):
     """

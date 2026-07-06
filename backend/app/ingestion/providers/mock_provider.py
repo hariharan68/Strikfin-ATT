@@ -18,22 +18,27 @@ from datetime import datetime, timezone
 # BASE PRICES
 # ─────────────────────────────────────────────────────────────
 
+# Synthetic base prices are mock-only dev fixtures (fake data), keyed by id with
+# a generic fallback. Instrument IDENTITY (symbol, strike step) comes from the
+# Instrument Master snapshot via the helpers below — NOT hardcoded here.
 _BASE = {
     1: 24_350.0,   # NIFTY 50
     2: 80_450.0,   # SENSEX
 }
 
-_STEP = {
-    1: 50,         # NIFTY strike step
-    2: 100,        # SENSEX strike step
-}
-
-_SYMBOLS = {
-    1: "NIFTY50",
-    2: "SENSEX",
-}
-
 _BASE_VIX = 14.5
+
+
+def _symbol(instrument_id: int) -> str:
+    from app.instruments import snapshot
+    r = snapshot.get(instrument_id)
+    return r.symbol if r else "UNKNOWN"
+
+
+def _step(instrument_id: int) -> float:
+    from app.instruments import snapshot
+    r = snapshot.get(instrument_id)
+    return float(r.strike_step) if r and r.strike_step else 50.0
 
 
 # ─────────────────────────────────────────────────────────────
@@ -65,7 +70,7 @@ def get_spot(instrument_id: int) -> dict:
 
     return {
         "instrument_id": instrument_id,
-        "symbol":        _SYMBOLS.get(instrument_id, "UNKNOWN"),
+        "symbol":        _symbol(instrument_id),
         "last_price":    ltp,
         "open_price":    round(prev * random.uniform(0.999, 1.001), 2),
         "high_price":    round(ltp  * random.uniform(1.001, 1.008), 2),
@@ -89,7 +94,7 @@ def get_futures(instrument_id: int) -> dict:
     ltp     = round(_walk(base) + premium, 2)
     prev    = round((base + premium) * random.uniform(0.990, 1.010), 2)
     chg_pct = round((ltp - prev) / prev * 100, 3)
-    symbol  = _SYMBOLS.get(instrument_id, "UNKNOWN")
+    symbol  = _symbol(instrument_id)
     return {
         "instrument_id":  instrument_id,
         "symbol":         symbol,
@@ -121,7 +126,7 @@ def get_option_chain(
     """
     base  = _BASE.get(instrument_id, 24_000.0)
     spot  = _walk(base)
-    step  = _STEP.get(instrument_id, 50)
+    step  = _step(instrument_id)
 
     # ATM strike
     atm = round(spot / step) * step

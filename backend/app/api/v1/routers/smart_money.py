@@ -29,7 +29,7 @@ _SIGNAL_LABELS = {
 
 @router.get("/{instrument_id}")
 async def smart_money(
-    instrument_id: int = Path(..., ge=1, le=2),
+    instrument_id: int = Path(..., ge=1),
     _uid: CurrentUserId = None,
 ):
     """

@@ -1,7 +1,27 @@
 import axios from 'axios'
 import { refreshAccessTokenOnce } from '../api/client'
-import { getMe } from '../api/endpoints'
+import { getMe, getPreferences } from '../api/endpoints'
 import { useAuthStore, REFRESH_TOKEN_KEY } from '../stores/authStore'
+import { setTheme } from './useTheme'
+import { applyPreferencesFromServer } from './usePreferences'
+
+/**
+ * Best-effort: pull the user's server-stored preferences and apply the theme +
+ * chart preferences. localStorage remains the pre-paint default; this reconciles
+ * it after login so choices follow the user across devices. Never throws.
+ */
+export async function applyServerPreferences(): Promise<void> {
+  try {
+    const prefs = await getPreferences()
+    if (prefs.theme) setTheme(prefs.theme)
+    applyPreferencesFromServer({
+      showChartTooltip: prefs.show_chart_tooltip,
+      callPutScheme: prefs.call_put_scheme,
+    })
+  } catch {
+    // Non-fatal — keep whatever localStorage already applied.
+  }
+}
 
 /**
  * Boot-time session restore.
@@ -24,6 +44,7 @@ async function doRestore(): Promise<boolean> {
     await refreshAccessTokenOnce() // sets access token (+ isAuthenticated) & rotates refresh token
     const me = await getMe()
     useAuthStore.getState().setUser(me)
+    await applyServerPreferences()
     return true
   } catch (err) {
     // Only forget the session when the token is DEFINITIVELY rejected. A

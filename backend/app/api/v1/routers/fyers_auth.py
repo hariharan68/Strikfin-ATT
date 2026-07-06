@@ -26,12 +26,13 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import HTMLResponse
 
 from app.core.config import settings
-from app.core.deps import CurrentUserId
+from app.core.deps import CurrentUserId, DBSession
 from app.core.token_store import (
     clear_access_token,
     get_token_info,
     set_access_token,
 )
+from app.brokers.connections import save_broker_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth/fyers", tags=["fyers-auth"])
@@ -51,6 +52,22 @@ def _get_secret() -> str:
 
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
+
+
+async def _persist_fyers_token(db, access_token: str, refresh_token: str | None) -> None:
+    """Best-effort durable save of the Fyers token to broker_connections.
+    Never let a persistence hiccup break the OAuth flow — the in-memory store
+    already has the token for the live session."""
+    try:
+        await save_broker_token(
+            db, "fyers", access_token,
+            user_id=None,  # global/implicit single-user connection until M5
+            refresh_token=refresh_token,
+            meta={"app_id": settings.FYERS_APP_ID, "client_id": settings.FYERS_CLIENT_ID},
+        )
+        await db.commit()
+    except Exception:
+        logger.warning("Fyers token DB persistence failed (kept in memory)", exc_info=True)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -117,13 +134,14 @@ async def fyers_login():
 
 @router.get("/callback", response_class=HTMLResponse)
 async def fyers_callback(
+    db: DBSession,
     auth_code: str = Query(..., alias="auth_code"),
     state:     str = Query(default="", alias="s"),
 ):
     """
     Fyers redirects here after user logs in.
     Exchanges auth_code for access_token.
-    Saves token and shows success page.
+    Saves token (in-memory + encrypted in broker_connections) and shows a page.
     """
     try:
         from fyers_apiv3 import fyersModel
@@ -145,7 +163,10 @@ async def fyers_callback(
             return _error_page(error_msg)
 
         access_token = response["access_token"]
-        set_access_token(access_token)
+        set_access_token(access_token)  # fast in-memory hot path (+legacy .env)
+        # Durable, encrypted persistence. The OAuth redirect is unauthenticated,
+        # so this is the implicit global connection (user_id=None) until M5.
+        await _persist_fyers_token(db, access_token, response.get("refresh_token"))
 
         logger.info("✓ Fyers access token generated and saved successfully")
 
@@ -211,9 +232,9 @@ async def debug_chain(instrument_id: int, _uid: CurrentUserId):
     Returns the raw Fyers optionchain response for inspection.
     Uses the shared, correctly-authenticated client (raw access token).
     """
-    from app.ingestion.providers.fyers_provider import _get_fyers
+    from app.ingestion.providers.fyers_provider import _get_fyers, _option_symbol
 
-    symbol = "NSE:NIFTY50-INDEX" if instrument_id == 1 else "BSE:SENSEX-INDEX"
+    symbol = _option_symbol(instrument_id) or "NSE:NIFTY50-INDEX"
     try:
         fyers = _get_fyers()
         return fyers.optionchain({
@@ -234,7 +255,7 @@ async def debug_chain(instrument_id: int, _uid: CurrentUserId):
 # ─────────────────────────────────────────────────────────────
 
 @router.post("/token")
-async def set_fyers_token_manually(payload: dict, _uid: CurrentUserId):
+async def set_fyers_token_manually(payload: dict, db: DBSession, _uid: CurrentUserId):
     """
     Manually set a Fyers access token.
     Useful when you generate the token externally.
@@ -251,7 +272,8 @@ async def set_fyers_token_manually(payload: dict, _uid: CurrentUserId):
             },
         )
 
-    set_access_token(token)
+    set_access_token(token)                      # in-memory hot path (+legacy .env)
+    await _persist_fyers_token(db, token, None)  # durable encrypted store
     logger.info("✓ Fyers token set manually")
 
     return {
