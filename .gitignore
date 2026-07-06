@@ -9,7 +9,6 @@ venv/
 __pycache__/
 *.pyc
 CLAUDE.md
-launch.json
 # Note: uv.lock IS committed (reproducible installs) — do not ignore it.
 
 # IDE
