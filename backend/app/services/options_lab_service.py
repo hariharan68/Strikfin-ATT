@@ -31,6 +31,7 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 
 from app.db.models import IndexLiveData, OptionChainRow, OptionChainSnapshot
 from app.engines.options_math import (
+    _RISK_FREE,
     ChainRow,
     atm_strike,
     max_pain,
@@ -334,6 +335,200 @@ class OptionsLabService:
             "default_vol_ids": default_vol_ids,
             "series":        series,
         }
+
+    async def get_gex_series(self, instrument_id: int, window: int = 20) -> dict:
+        """
+        Raw per-snapshot chain data (OI + IV per leg) for the Options Lab →
+        Gamma Exposure tool. The GEX math itself (Black-Scholes gamma, walls,
+        gamma flip) lives client-side in ``frontend/src/lib/gex.ts`` — this
+        endpoint deliberately ships inputs, not results, so the math stays a
+        pure unit-tested module.
+
+        Payload: ``strikes`` (window around ATM, asc) plus ``series`` of
+        snapshots, each with the snapshot spot and c_oi/c_iv/p_oi/p_iv arrays
+        aligned to ``strikes`` (``None`` = leg absent or IV unrecoverable).
+
+        Unlike ``get_oi_series`` there is NO synthetic 09:15 open point: the
+        ``oi − oi_change`` reconstruction has no IV at open, so a GEX value
+        there would be fabricated. The series starts at the first real snapshot.
+
+        Per-point price is the snapshot **spot** (not ``_fut_of``): spot² is a
+        term of the GEX formula, i.e. a computation input — the futures
+        PRICE-OVERLAY CONVENTION in ``get_oi_series`` applies to plotted price
+        lines only, not here.
+        """
+        snaps = await self._day_snapshots(instrument_id)
+        if not snaps:
+            return self._live_gex_series(instrument_id, window)
+
+        latest = snaps[-1]
+        close_snap = await self._close_snapshot(instrument_id, latest.trade_date)
+
+        snap_ids = [s.snapshot_id for s in snaps]
+        append_close = (
+            close_snap is not None
+            and snaps[-1].snap_ts < self._market_close_dt(latest.trade_date).replace(tzinfo=None)
+        )
+        if append_close:
+            snap_ids.append(close_snap.snapshot_id)
+        rows_by_snap = await self._rows_by_snapshot(snap_ids, with_greeks=True)
+        latest_rows = rows_by_snap.get(latest.snapshot_id, [])
+        if not latest_rows:
+            return self._live_gex_series(instrument_id, window)
+
+        strikes = sorted({r["strike"] for r in latest_rows})
+        spot = self._spot_for(instrument_id, latest_rows)
+        atm = atm_strike(spot, strikes) if strikes else spot
+
+        atm_i = min(range(len(strikes)), key=lambda i: abs(strikes[i] - atm)) if strikes else 0
+        lo_i = max(0, atm_i - window)
+        hi_i = min(len(strikes), atm_i + window + 1)
+        win_strikes = strikes[lo_i:hi_i]
+        axis = {s: i for i, s in enumerate(win_strikes)}
+        n = len(win_strikes)
+
+        def _point(snapshot_id: int, t_iso: str, point_spot: float) -> dict:
+            c_oi: list = [None] * n
+            c_iv: list = [None] * n
+            p_oi: list = [None] * n
+            p_iv: list = [None] * n
+            for r in rows_by_snap.get(snapshot_id, []):
+                i = axis.get(r["strike"])
+                if i is None:
+                    continue
+                if r["option_type"] == "CE":
+                    c_oi[i] = _i(r.get("oi"))
+                    c_iv[i] = r.get("iv")
+                else:
+                    p_oi[i] = _i(r.get("oi"))
+                    p_iv[i] = r.get("iv")
+            return {"t": t_iso, "spot": round(point_spot, 2),
+                    "c_oi": c_oi, "c_iv": c_iv, "p_oi": p_oi, "p_iv": p_iv}
+
+        series = [
+            _point(
+                snap.snapshot_id,
+                snap.snap_ts.replace(tzinfo=timezone.utc).isoformat(),
+                _f(snap.spot),
+            )
+            for snap in snaps
+        ]
+        if append_close and rows_by_snap.get(close_snap.snapshot_id):
+            series.append(
+                _point(
+                    close_snap.snapshot_id,
+                    self._market_close_dt(latest.trade_date).isoformat(),
+                    _f(close_snap.spot),
+                )
+            )
+
+        expiry_date = latest.expiry_date
+        return {
+            "instrument_id": instrument_id,
+            "symbol":        _symbol(instrument_id),
+            "lot_size":      instrument_snapshot.lot_size(instrument_id),
+            "spot":          round(spot, 2),
+            "atm_strike":    atm,
+            "trade_date":    latest.trade_date.isoformat(),
+            "expiry_date":   expiry_date.isoformat() if expiry_date else None,
+            "expiry_ts":     self._expiry_ts_iso(expiry_date),
+            "risk_free":     _RISK_FREE,
+            "open_ts":       series[0]["t"] if series else None,
+            "now_ts":        series[-1]["t"] if series else None,
+            "data_quality":  "intraday" if len(series) >= 2 else "live_proxy",
+            "strikes":       win_strikes,
+            "series":        series,
+        }
+
+    def _live_gex_series(self, instrument_id: int, window: int) -> dict:
+        """No DB history — one live chain rendered as a single GEX series point."""
+        try:
+            chain = get_option_chain(instrument_id)
+        except Exception:
+            logger.warning("live chain fetch failed for GEX series", exc_info=True)
+            chain = {}
+        rows = [
+            {
+                "strike":      _f(r["strike"]),
+                "option_type": r["option_type"],
+                "oi":          _i(r.get("oi")),
+                "iv":          float(r["iv"]) if r.get("iv") else None,
+            }
+            for r in chain.get("rows", [])
+        ]
+        today = datetime.now(_IST).date()
+        expiry_raw = chain.get("expiry_date")
+        expiry_date = (
+            datetime.strptime(expiry_raw, "%Y-%m-%d").date() if expiry_raw else None
+        )
+        if not rows:
+            return {
+                "instrument_id": instrument_id,
+                "symbol":        _symbol(instrument_id),
+                "lot_size":      instrument_snapshot.lot_size(instrument_id),
+                "spot":          0.0,
+                "atm_strike":    0.0,
+                "trade_date":    today.isoformat(),
+                "expiry_date":   None,
+                "expiry_ts":     None,
+                "risk_free":     _RISK_FREE,
+                "open_ts":       None,
+                "now_ts":        datetime.now(timezone.utc).isoformat(),
+                "data_quality":  "empty",
+                "strikes":       [],
+                "series":        [],
+            }
+        strikes = sorted({r["strike"] for r in rows})
+        spot = self._spot_for(instrument_id, rows)
+        atm = atm_strike(spot, strikes) if strikes else spot
+        atm_i = min(range(len(strikes)), key=lambda i: abs(strikes[i] - atm))
+        lo_i = max(0, atm_i - window)
+        hi_i = min(len(strikes), atm_i + window + 1)
+        win_strikes = strikes[lo_i:hi_i]
+        axis = {s: i for i, s in enumerate(win_strikes)}
+        n = len(win_strikes)
+        c_oi: list = [None] * n
+        c_iv: list = [None] * n
+        p_oi: list = [None] * n
+        p_iv: list = [None] * n
+        for r in rows:
+            i = axis.get(r["strike"])
+            if i is None:
+                continue
+            if r["option_type"] == "CE":
+                c_oi[i] = r["oi"]
+                c_iv[i] = r["iv"]
+            else:
+                p_oi[i] = r["oi"]
+                p_iv[i] = r["iv"]
+        now_ts = datetime.now(timezone.utc).isoformat()
+        return {
+            "instrument_id": instrument_id,
+            "symbol":        _symbol(instrument_id),
+            "lot_size":      instrument_snapshot.lot_size(instrument_id),
+            "spot":          round(spot, 2),
+            "atm_strike":    atm,
+            "trade_date":    today.isoformat(),
+            "expiry_date":   expiry_date.isoformat() if expiry_date else None,
+            "expiry_ts":     self._expiry_ts_iso(expiry_date),
+            "risk_free":     _RISK_FREE,
+            "open_ts":       now_ts,
+            "now_ts":        now_ts,
+            "data_quality":  "live_proxy",
+            "strikes":       win_strikes,
+            "series":        [{"t": now_ts, "spot": round(spot, 2),
+                               "c_oi": c_oi, "c_iv": c_iv, "p_oi": p_oi, "p_iv": p_iv}],
+        }
+
+    def _expiry_ts_iso(self, expiry_date) -> str | None:
+        """Expiry instant = 15:30 IST on the expiry date, as an ISO UTC string."""
+        if expiry_date is None:
+            return None
+        return (
+            datetime.combine(expiry_date, _MARKET_CLOSE, tzinfo=_IST)
+            .astimezone(timezone.utc)
+            .isoformat()
+        )
 
     async def get_price_oi_series(self, instrument_id: int) -> dict:
         """
@@ -655,7 +850,9 @@ class OptionsLabService:
             out.append(_point(close_snap.snapshot_id, self._market_close_dt(trade_date).isoformat()))
         return out
 
-    async def _rows_by_snapshot(self, snapshot_ids: list[int], with_vol: bool = False):
+    async def _rows_by_snapshot(
+        self, snapshot_ids: list[int], with_vol: bool = False, with_greeks: bool = False
+    ):
         """Bulk-load OptionChainRows for many snapshots, grouped by snapshot_id."""
         if not snapshot_ids:
             return {}
@@ -676,6 +873,12 @@ class OptionsLabService:
             }
             if with_vol:
                 d["volume"] = _i(r.volume)
+            if with_greeks:
+                # iv is nullable by design (ck_ocr_iv: iv IS NULL OR iv > 0) —
+                # preserve None so GEX consumers can skip unrecoverable legs
+                # instead of computing a bogus zero-vol gamma.
+                d["iv"] = float(r.iv) if r.iv is not None else None
+                d["ltp"] = float(r.ltp) if r.ltp is not None else None
             out.setdefault(r.snapshot_id, []).append(d)
         return out
 

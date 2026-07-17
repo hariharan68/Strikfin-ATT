@@ -9,8 +9,11 @@
 │                                                             │
 │  Pages: Dashboard · Advanced Dashboard · Options ·          │
 │         Options Lab · Future Lab · Analyse · Option Chain ·  │
-│         Smart Money · Institutional · All-in-One · Copilot   │
-│  State: Zustand store (authStore) · theme store (useTheme)  │
+│         Smart Money · Institutional · All-in-One · Copilot · │
+│         Settings                                            │
+│  Charts: Apache ECharts (echarts-for-react/esm/core)        │
+│  Themes: classic · warm · dark · terminal (CSS-var remap)   │
+│  State: Zustand (authStore) · useTheme · usePreferences     │
 │  HTTP:  Axios → /api/v1/* via proxy to :8000                │
 └────────────────────────┬────────────────────────────────────┘
                          │ HTTP/JSON  (Bearer JWT)
@@ -61,6 +64,8 @@
 - Current engines: `options_math` (PCR, max-pain, OI walls, Black-76 greeks/IV, ATM-IV, IV-percentile, net-GEX, gamma-flip, writing posture, ATR/ADX/realized-vol), `synthesizer` (multi-factor bias signal), `short_covering` (post-noon recovery detector), `outcome` (signal-outcome R-multiple evaluation).
   > The earlier standalone `regime` engine/service/router has been removed; bias classification now lives in `synthesizer` and is surfaced through the `/signals` endpoints.
 
+> **Client-side compute (Gamma Exposure).** The Options Lab GEX tool inverts the usual layer split: the backend ships **raw inputs** (`GET /options-lab/gex-series/{id}` → per-snapshot call/put OI + IV arrays, spot, `expiry_ts`, `risk_free`, `lot_size`) and **all GEX math runs in the browser** in the pure, unit-tested module `frontend/src/lib/gex.ts` (Black-Scholes gamma, per-strike dealer GEX, Call/Put walls, Net-GEX-Cross, zero-gamma flip, regime). It uses the industry-standard per-1%-move scaling `gamma·OI·lot·spot²·0.01` (matching StockMojo) — intentionally distinct from the backend `options_math.net_gex`. This keeps the scrubbable snapshot slider instant (no per-frame API calls).
+
 ### Provider (`app/ingestion/providers/`)
 
 - Retrieves raw market data from an external source or generates mock data.
@@ -72,8 +77,12 @@
 
 - SQLAlchemy ORM table definitions only.
 - All market tables are **append-only** — no UPDATE statements.
-- The auth tables (`users`, `refresh_tokens`) are mutable.
+- The auth/config tables (`users`, `refresh_tokens`, `user_preferences`, `broker_connections`) and the multi-tenant plane (`organizations`, `memberships`, `roles`, `permissions`, `role_permissions`, `api_keys`, `plans`, `subscriptions`) are mutable.
 - **Must not** contain domain logic.
+
+> **Datetimes are naive UTC by design** — columns are `TIMESTAMP` (not `TIMESTAMPTZ`). Attach `timezone.utc` on read, strip on compare. IST is a fixed `timezone(timedelta(hours=5, minutes=30))`, never `ZoneInfo` (no IANA tzdata on the Windows dev box).
+
+> **Migrations are live.** `alembic/versions/` now holds the real history (baseline `5a2843c19f71` → instrument columns → `broker_connections` → multi-tenant tables → user-profile/preferences `20afea002e7e`). `docs/postgres_db_creation.sql` is a standalone recreate kept in sync for reference, but **Alembic is the source of truth**.
 
 ### Schemas (`app/domain/schemas.py`)
 
@@ -95,12 +104,14 @@ MARKET_DATA_VENDOR=fyers   # or "mock"
 |---|---|---|
 | `get_spot(instrument_id)` | Deterministic random data | Fyers quotes API |
 | `get_option_chain(instrument_id)` | Generated synthetic chain | Fyers optionchain API (IV + greeks recovered locally via Black-76) |
-| `get_futures(instrument_id)` | Synthetic futures | Fyers quotes API (near-month FUT symbol) |
+| `get_futures(instrument_id)` | Synthetic futures | Rides the batched spot refresh (pre-filled `("futures", id)` cache) — never its own `quotes()` call |
 | `get_history(instrument_id, days, resolution)` | Synthetic OHLC candles | Fyers history API (powers ATR/ADX/realized-vol) |
 | `get_news_headlines(limit)` | Static fixture list | Mock only (no Fyers news feed) |
 | `get_institutional_activity(date)` | Static fixture data | Mock only (no Fyers flow data) |
 
 > The Fyers provider keeps a short in-process TTL cache (`_serve`) so a single dashboard fan-out collapses to one real Fyers call per instrument and never trips the API rate limit; on a live error it serves the last-good live value rather than reverting to mock.
+
+> **`quotes()` throttle hardening.** All spot symbols + India VIX + current-month FUT symbols are fetched in **one batched `quotes()` call** (`_refresh_all_spots`, guarded once per 35 s by `_last_spot_refresh` + a threading lock). `get_futures` reads the pre-filled cache instead of firing its own call. When `quotes()` is rate-limited (HTTP 429), a **chain-derive fallback** (`_spot_and_fut_from_chain`) recovers the live spot (`ltp`) and near-month futures (`fp`) from the un-throttled option-chain API, tagged `source="fyers_chain"`. Only a genuine failure falls through to `mock_provider` (tell: `source == "mock_fallback"`, and the scheduler persists zero rows that session).
 
 > **Note:** News headlines and FII/DII institutional activity are always sourced from the mock provider regardless of `MARKET_DATA_VENDOR`. Production integration with a news API or NSDL data feed is a planned roadmap item.
 
@@ -168,7 +179,7 @@ a dashboard poll from triggering per-request INSERTs.
 
 A single resilient facade (`cache.get_json` / `cache.set_json` / `make_key`)
 backs every hot read endpoint (`/options/{id}/metrics`, `/options/{id}/chain`,
-`/options-lab/oi/{id}`, `/options-lab/oi-series/{id}`).
+`/options-lab/oi/{id}`, `/options-lab/oi-series/{id}`, `/options-lab/gex-series/{id}`).
 
 - **Redis-ready, zero code change.** Leave `REDIS_URL` empty for the built-in
   in-process TTL cache; set it for a shared Redis cache across workers.
@@ -210,14 +221,23 @@ the `useInstrument` hook, so it survives reloads and stays in sync across pages.
 | `/advanced-dashboard` | `AdvancedDashboardPage` | `GET /dashboard` + `GET /index/{id}/futures` + `GET /options/{id}/metrics` |
 | `/options` | `OptionsPage` | `GET /options/{id}/metrics`, `GET /options/{id}/chain` |
 | `/option-chain` | `OptionChainPage` | `GET /options/{id}/chain` |
-| `/options-lab` | `OptionsLabPage` | `GET /options-lab/oi/{id}`, `GET /options-lab/oi-series/{id}` |
-| `/future-lab` | `FutureLabPage` | `GET /index/{id}/futures` |
+| `/options-lab` | `OptionsLabPage` (tool via `?tool=`) | `GET /options-lab/oi/{id}`, `GET /options-lab/oi-series/{id}`, `GET /options-lab/gex-series/{id}` |
+| `/future-lab` | `FutureLabPage` | `GET /index/{id}/futures`, `GET /future-lab/price-oi/{id}` |
 | `/analyse` | `AnalysePage` | `GET /sentiment/{id}`, `GET /index/{id}/short-covering` |
 | `/all-in-1` | `AllInOnePage` | aggregate of the above |
 | `/smart-money` | `SmartMoneyPage` | `GET /smart-money/{id}` |
 | `/institutional` | `InstitutionalPage` | `GET /institutional` |
 | `/copilot` | `CopilotPage` | `POST /copilot/ask` |
-| `/settings` | `SettingsPage` | `GET /auth/fyers/status` |
+| `/settings` | `SettingsPage` | `GET/PATCH /auth/me`, `GET/PUT /me/preferences`, `GET /me/plan`, `GET /auth/fyers/status` |
+| (navbar) | `InstrumentSearch` | `GET /instruments/search` |
+
+> **Options Lab tools** are selected by the `?tool=<slug>` query param on one page:
+> `open-interest`, `multi-oi-volume`, `multistrike-oi`, `put-call-ratio`, `max-pain`,
+> `gamma-exposure`. Instrument stays in `?inst=`.
+
+> **Settings preferences** are seeded into the `usePreferences` store at login
+> (mirrors `useTheme`). Two chart prefs are consumed live: `show_chart_tooltip`
+> (ECharts tooltip on/off) and `call_put_scheme` (classic/inverted call-put colours).
 
 > The standalone `/dashboard` aggregate carries options + chain for **both**
 > NIFTY and SENSEX (`nifty_options`/`sensex_options`,

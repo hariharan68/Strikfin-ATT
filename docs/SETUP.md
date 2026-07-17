@@ -129,22 +129,22 @@ Start the backend (Step 5) — on a successful connection it logs `✓ Database 
 
 ## Step 4: Database Migrations
 
-Alembic is configured but the `alembic/versions/` directory is currently empty — migrations have not been generated yet.
+Alembic is wired up (`alembic/env.py` points at the app models/URL) and `alembic/versions/` holds a real history: baseline schema → instrument master columns → `broker_connections` → the multi-tenant tables → user-profile fields + `user_preferences`. Alembic is the source of truth; `docs/postgres_db_creation.sql` is a standalone recreate kept in sync for reference only.
 
-### Generate the first migration from the current models
+### Build the schema from scratch
 
 ```bash
 cd backend
-uv run alembic revision --autogenerate -m "initial_schema"
+uv run alembic upgrade head
+```
+
+### Generate a new migration after changing the models
+
+```bash
+uv run alembic revision --autogenerate -m "your_change"
 ```
 
 Review the generated file in `alembic/versions/` to verify it matches `db/models.py`.
-
-### Apply migrations
-
-```bash
-uv run alembic upgrade head
-```
 
 ### Roll back one revision
 
@@ -249,9 +249,5 @@ Run `uv run alembic upgrade head` from the `backend/` directory.
 ### `FYERS_NOT_CONFIGURED`
 `FYERS_APP_ID` and/or `FYERS_SECRET_ID` are missing from `.env`. These are only needed when `MARKET_DATA_VENDOR=fyers`.
 
-### `CheckViolationError: ... violates check constraint "ck_ocr_iv"` (background ingestion)
-A **known issue**, not a setup mistake — the server still starts and serves requests normally. The background ingestion job tries to persist `option_chain_rows`, but Fyers returns `iv = 0` for deep in/out-of-the-money strikes, and the live database has a `ck_ocr_iv` check constraint (e.g. `iv > 0`) that rejects those rows, so that one snapshot fails and is skipped.
-
-Note this constraint exists **only in the database** — it is not declared in `app/db/models.py` (where `iv` is a plain nullable column), which is why the ORM allows the value but Postgres rejects it. Workarounds until it's fixed (see [ROADMAP.md](ROADMAP.md)):
-- Drop/relax the constraint: `ALTER TABLE option_chain_rows DROP CONSTRAINT ck_ocr_iv;` (or redefine it as `CHECK (iv >= 0)`), **or**
-- Run with `MARKET_DATA_VENDOR=mock` to avoid the live IV=0 rows.
+### `CheckViolationError: ... violates check constraint "ck_ocr_iv"` (RESOLVED)
+This used to fire when Fyers returned `iv = 0` for deep ITM/OTM strikes. It is **fixed**: the constraint is `iv IS NULL OR iv > 0`, the Fyers provider now returns `None` for unrecoverable IV (recovered via Black-76 put-call parity), and the ingestion path stores **`NULL` instead of `0`** — so option snapshots persist cleanly. If you still see it on an old database, ensure the constraint is `CHECK (iv IS NULL OR iv > 0)` (it is in `docs/postgres_db_creation.sql` and the Alembic baseline).

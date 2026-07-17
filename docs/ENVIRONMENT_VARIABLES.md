@@ -123,6 +123,14 @@ Only relevant when `MARKET_DATA_VENDOR=fyers`. All default to empty string.
 
 ---
 
+## Broker Connections (encrypted vendor tokens)
+
+| Variable | Default | Required | Sensitive | Purpose |
+|---|---|---|---|---|
+| `BROKER_TOKEN_ENC_KEY` | `""` | No | **Yes** | Fernet key used to encrypt broker access/refresh tokens in the `broker_connections` table. Generate with `Fernet.generate_key()`. When empty, broker-connection token encryption is disabled (dev/single-user). |
+
+---
+
 ## CORS
 
 | Variable | Default | Required | Sensitive | Purpose |

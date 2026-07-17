@@ -1,6 +1,8 @@
 # Strikfin
 
-Strikfin is an institutional-grade market intelligence terminal for India's benchmark indices — NIFTY 50 and SENSEX — that fuses options open-interest analytics, an Options Lab (intraday OI build-up, multi-strike OI & volume, gamma exposure), a multi-factor AI bias signal with outcome scoring, smart-money signal detection, FII/DII flow interpretation, news sentiment scoring, and an AI-grounded copilot into a single, real-time dashboard. All outputs carry a mandatory SEBI-aligned disclosure label; the platform is explicitly positioned as market intelligence, not investment advice.
+Strikfin is an institutional-grade market intelligence terminal for India's benchmark indices — NIFTY 50 and SENSEX — that fuses options open-interest analytics, an Options Lab (intraday OI build-up, multi OI & volume, multistrike OI change, put-call ratio, max pain, and gamma exposure), a multi-factor AI bias signal with outcome scoring, smart-money signal detection, FII/DII flow interpretation, news sentiment scoring, and an AI-grounded copilot into a single, real-time dashboard. Charts run on Apache ECharts; the UI ships four themes (classic / warm / dark / terminal) and DB-backed per-user settings. All outputs carry a mandatory SEBI-aligned disclosure label; the platform is explicitly positioned as market intelligence, not investment advice.
+
+> **Multi-tenant ready.** A tenancy plane (organizations, roles/permissions, memberships, API keys, plans, subscriptions) and per-broker connections back a SaaS deployment path — see [SAAS_MIGRATION_NOTES.md](SAAS_MIGRATION_NOTES.md).
 
 ---
 
@@ -20,7 +22,9 @@ Strikfin is an institutional-grade market intelligence terminal for India's benc
 | **Routing** | React Router 7 |
 | **State management** | Zustand 5 |
 | **HTTP client** | Axios 1 |
-| **Styling** | Tailwind CSS 4 |
+| **Charts** | Apache ECharts (`echarts` + `echarts-for-react/esm/core`) |
+| **Styling** | Tailwind CSS 4 (4-theme CSS-variable remap on `<html>`) |
+| **Frontend tests** | Vitest 3 |
 | **Language** | TypeScript 6 (frontend) · Python 3.11 (backend) |
 | **Backend tooling** | uv (dependency + Python-version management; pinned to 3.11) |
 
@@ -101,8 +105,9 @@ Strikfin (ATT)/
 │   │   ├── engines/            # Pure-Python computation engines
 │   │   ├── ingestion/          # Market-data providers (mock / Fyers)
 │   │   └── services/           # Orchestration layer (provider → engine → DB)
-│   ├── tests/unit/engines/     # Unit tests for engine functions
-│   ├── alembic/                # Database migrations
+│   ├── tests/unit/engines/     # Engine unit tests
+│   ├── tests/unit/services/    # Service unit tests (GEX payload)
+│   ├── alembic/versions/       # Database migrations (live history)
 │   ├── app.py                  # Launcher — `uv run app.py`
 │   ├── pyproject.toml          # Dependencies + Python pin (uv)
 │   └── uv.lock                 # Locked dependency versions
@@ -112,7 +117,7 @@ Strikfin (ATT)/
 │       ├── components/         # Reusable UI components
 │       ├── pages/              # Page-level React components
 │       ├── stores/             # Zustand state stores
-│       └── lib/                # Utility hooks and formatters
+│       └── lib/                # Utility hooks, formatters, pure math (gex.ts + __tests__)
 └── docs/                       # This documentation set
 ```
 

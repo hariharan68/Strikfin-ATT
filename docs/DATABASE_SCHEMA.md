@@ -4,7 +4,7 @@ Database: **StrikfinDB** (PostgreSQL 16+)
 Connection: host/port with user + password (`postgresql+asyncpg://…`)
 ORM: SQLAlchemy 2.0 async (asyncpg driver)
 
-All market data tables are **append-only** — rows are inserted, never updated in place. The auth tables (`users`, `refresh_tokens`) are the only mutable tables.
+All market data tables are **append-only** — rows are inserted, never updated in place. The mutable tables are the auth/config set (`users`, `refresh_tokens`, `user_preferences`, `broker_connections`) and the multi-tenant plane (`organizations`, `memberships`, `roles`, `permissions`, `role_permissions`, `api_keys`, `plans`, `subscriptions`).
 
 ---
 
@@ -12,7 +12,7 @@ All market data tables are **append-only** — rows are inserted, never updated 
 
 ### `users`
 
-Single-user platform auth. Stores the application owner's account.
+Application accounts. Each user gets a personal `organization` on register (multi-tenant plane below).
 
 | Column | Type | Nullable | Default | Notes |
 |---|---|---|---|---|
@@ -20,11 +20,31 @@ Single-user platform auth. Stores the application owner's account.
 | `email` | VARCHAR(255) | No | — | Unique, indexed |
 | `password_hash` | VARCHAR(255) | No | — | bcrypt hash |
 | `display_name` | VARCHAR(100) | Yes | NULL | |
+| `phone` | VARCHAR(20) | Yes | NULL | Settings-page profile field |
+| `state` | VARCHAR(64) | Yes | NULL | Settings-page profile field |
+| `auth_provider` | VARCHAR(20) | No | `'email'` | `email` / future OAuth providers |
 | `is_active` | BOOLEAN | No | `True` | Soft-disable without deleting |
 | `created_at` | DATETIME | No | `utcnow()` | |
 | `last_login_at` | DATETIME | Yes | NULL | Updated on each login |
 
-**Relationships:** one-to-many → `refresh_tokens`, `audit_logs`
+**Relationships:** one-to-many → `refresh_tokens`, `audit_logs`; one-to-one → `user_preferences`
+
+---
+
+### `user_preferences`
+
+Per-user UI settings (1:1 with `users`), persisted from the Settings page so they survive reloads/devices.
+
+| Column | Type | Nullable | Default | Notes |
+|---|---|---|---|---|
+| `user_id` | BIGINT | No | PK, FK → `users` (CASCADE) | |
+| `theme` | VARCHAR(20) | Yes | NULL | `classic` / `warm` / `dark` / `terminal` |
+| `show_chart_tooltip` | BOOLEAN | No | `true` | Toggles the ECharts tooltip |
+| `call_put_scheme` | VARCHAR(16) | No | `'classic'` | `classic` / `inverted` call-put colours |
+| `created_at` | DATETIME | No | `utcnow()` | |
+| `updated_at` | DATETIME | No | `utcnow()` (on update) | |
+
+**API:** `GET/PUT /me/preferences`. Seeded into the frontend `usePreferences` store at login.
 
 ---
 
@@ -48,15 +68,26 @@ Stores hashed refresh tokens for token rotation. Revoked tokens are soft-deleted
 
 ### `instruments`
 
-Lookup table for the two tracked instruments.
+Instrument **master** — the single source of truth for what an instrument *is* (symbols, lot size, strike step, expiry rule, per-vendor symbol map). Replaces the hardcoded per-id dicts that used to live in providers/services. Read via `app.instruments.InstrumentRef`, never by keying a module dict on a magic id. Exposed through `/instruments`, `/instruments/search`, `/instruments/{id}`.
 
 | Column | Type | Nullable | Default | Notes |
 |---|---|---|---|---|
-| `instrument_id` | SMALLINT | No | PK (manual) | 1 = NIFTY50, 2 = SENSEX |
-| `symbol` | VARCHAR(20) | No | — | Unique. E.g. `NIFTY50`, `SENSEX` |
-| `exchange` | VARCHAR(10) | No | — | `NSE` or `BSE` |
-| `lot_size` | INT | No | — | Current lot size for F&O |
+| `instrument_id` | SMALLINT | No | PK (manual) | 1 = NIFTY50, 2 = SENSEX, … |
+| `uid` | UUID | No | `gen_random_uuid()` | Opaque external id used by the API/frontend |
+| `symbol` | VARCHAR(20) | No | — | Unique root symbol (`NIFTY50`, `SENSEX`) |
+| `exchange` | VARCHAR(10) | No | — | `NSE` / `BSE` / `MCX` / `CDS` / … |
+| `lot_size` | INT | No | — | Current F&O lot size |
 | `is_active` | BOOLEAN | No | `True` | |
+| `display_name` | VARCHAR(80) | Yes | NULL | |
+| `segment` | VARCHAR(20) | Yes | NULL | `INDEX` / `EQUITY` / `FUT` / `OPT` / … |
+| `instrument_type` | VARCHAR(20) | Yes | NULL | `INDEX` / `OPTIDX` / … |
+| `underlying` | VARCHAR(40) | Yes | NULL | |
+| `tick_size` | DECIMAL(12,4) | Yes | NULL | |
+| `strike_step` | DECIMAL(12,2) | Yes | NULL | Replaces mock `_STEP` / `round(spot/50)` |
+| `expiry_rule` | VARCHAR(40) | Yes | NULL | Replaces the last-Thursday builder |
+| `vendor_symbols` | JSONB | No | `{}` | Per-vendor symbol map (spot/option/futures template) |
+| `snapshot_enabled` | BOOLEAN | No | `true` | Whether the scheduler snapshots this instrument |
+| `status` | VARCHAR(20) | No | `'ACTIVE'` | `ACTIVE` / `DELISTED` / `SUSPENDED` |
 
 ---
 
@@ -95,6 +126,7 @@ Header record for each option chain pull. Child rows live in `option_chain_rows`
 | `expiry_date` | DATE | No | — | Near-month expiry date |
 | `snap_ts` | DATETIME | No | — | Snapshot timestamp (UTC) |
 | `spot` | DECIMAL(12,2) | No | — | Underlying spot at this snapshot |
+| `future_price` | DECIMAL(12,2) | Yes | NULL | Tradable current-month FUTURES price (`> 0` check). Options Lab price overlays plot this, not spot; falls back to `spot` on read for pre-column rows / failed fetch |
 | `atm_strike` | DECIMAL(12,2) | No | — | At-the-money strike |
 | `total_call_oi` | BIGINT | Yes | NULL | Sum of all CE OI |
 | `total_put_oi` | BIGINT | Yes | NULL | Sum of all PE OI |
@@ -280,6 +312,43 @@ Append-only security and action audit trail.
 | `detail` | TEXT | Yes | NULL | JSON extra context |
 
 **Indexes:** `ix_audit_user` on (`user_id`, `as_of`), `ix_audit_action` on (`action`, `as_of`)
+
+---
+
+### `broker_connections`
+
+Per-user link to a broker/data vendor (Fyers today; Zerodha/Angel later). Tokens are stored **encrypted (Fernet)** — never plaintext. Retires the single global in-memory + `.env` Fyers token. `user_id` is nullable for now (the Fyers OAuth callback is unauthenticated → that row is the implicit global connection).
+
+| Column | Type | Nullable | Default | Notes |
+|---|---|---|---|---|
+| `id` | UUID | No | `gen_random_uuid()` PK | |
+| `user_id` | BIGINT | Yes | NULL | FK → `users` (CASCADE) |
+| `broker` | VARCHAR(20) | No | — | `fyers` / `zerodha` / … |
+| `access_token_enc` | TEXT | Yes | NULL | Fernet-encrypted access token |
+| `refresh_token_enc` | TEXT | Yes | NULL | Fernet-encrypted refresh token |
+| `meta` | JSONB | No | `{}` | |
+| `status` | VARCHAR(20) | No | `'ACTIVE'` | `ACTIVE` / `EXPIRED` / `REVOKED` |
+| `generated_at` / `expires_at` | DATETIME | Yes | NULL | |
+| `created_at` / `updated_at` | DATETIME | No | `utcnow()` | |
+
+**Indexes:** `ix_broker_conn_user_broker` on (`user_id`, `broker`)
+
+---
+
+## Multi-tenant plane (M5)
+
+Tenant-scoped tables use **UUID PKs** and `created/updated/deleted` audit columns. Postgres **RLS** policies (defined in the migration) key on `current_setting('app.tenant_id')`; app-layer scoping in the services is the primary enforcement while the app runs as a superuser role. Router: `tenancy.py` (`/me/tenancy`, `/orgs`, `/orgs/{id}/members`, `/api-keys`). See [SAAS_MIGRATION_NOTES.md](SAAS_MIGRATION_NOTES.md).
+
+| Table | Purpose | Key columns |
+|---|---|---|
+| `organizations` | A tenant; every user gets a personal org on register | `id` UUID PK, `name`, `slug` (unique), `owner_user_id` FK, `plan_key` (`free`…), `is_personal`, soft-delete `deleted_at` |
+| `roles` | Named permission bundle | `id` UUID PK, `key` (`owner`/`admin`/`analyst`/`viewer`), `name`, `is_system` |
+| `permissions` | A grantable capability | `id` UUID PK, `key` (e.g. `instrument.read`), `description` |
+| `role_permissions` | Role ↔ Permission M2M | (`role_id`, `permission_id`) composite PK |
+| `memberships` | A user's role within an org | `id` UUID PK, `org_id` FK, `user_id` FK, `role_id` FK, `status`; unique (`org_id`,`user_id`) |
+| `api_keys` | Per-org key for the public REST/SDK plane (hash only) | `id` UUID PK, `org_id` FK, `name`, `key_prefix`, `key_hash` (unique), `scopes` JSONB, `revoked_at` |
+| `plans` | Subscription tier + limits (seeded reference data) | `id` UUID PK, `key` (`free`/`pro`/`desk`/`enterprise`), `price_inr`, `limits` JSONB |
+| `subscriptions` | An org's current plan subscription | `id` UUID PK, `org_id` FK, `plan_key`, `status`, `provider` (`manual`/`razorpay`), `provider_ref`, `current_period_end` |
 
 ---
 

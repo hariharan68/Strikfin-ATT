@@ -478,6 +478,43 @@ export async function getOILabSeries(id: InstrumentId): Promise<OILabSeries> {
 }
 
 // ---------------------------------------------------------------------------
+// Options Lab — Gamma Exposure (raw chain inputs; math lives in src/lib/gex.ts)
+// ---------------------------------------------------------------------------
+export interface GexSeriesPoint {
+  t: string // ISO timestamp
+  spot: number // index spot at this snapshot (GEX formula input)
+  c_oi: (number | null)[] // aligned to strikes[]; null = leg absent
+  c_iv: (number | null)[] // IV %, null = unrecoverable
+  p_oi: (number | null)[]
+  p_iv: (number | null)[]
+}
+
+export interface GexSeries {
+  instrument_id: number
+  symbol: string
+  lot_size: number
+  spot: number
+  atm_strike: number
+  trade_date: string
+  expiry_date: string | null
+  /** Expiry instant (15:30 IST on expiry date), ISO UTC — for time-to-expiry. */
+  expiry_ts: string | null
+  risk_free: number
+  open_ts: string | null
+  now_ts: string | null
+  data_quality: 'intraday' | 'live_proxy' | 'empty'
+  strikes: number[]
+  series: GexSeriesPoint[]
+}
+
+export async function getGexSeries(id: InstrumentId, window = 20): Promise<GexSeries> {
+  const { data } = await api.get<GexSeries>(`/options-lab/gex-series/${id}`, {
+    params: { window },
+  })
+  return data
+}
+
+// ---------------------------------------------------------------------------
 // Signals
 // ---------------------------------------------------------------------------
 export interface SignalData {

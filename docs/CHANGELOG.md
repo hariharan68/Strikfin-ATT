@@ -5,6 +5,50 @@ Each entry lists the date, a one-line summary, and the primary files changed.
 
 ---
 
+## v0.8 — Gamma Exposure fixes: scaling, walls, gamma-flip, theme visibility (2026-07-17)
+
+Corrected the Options Lab **Gamma Exposure (GEX)** tool to match reference dashboards (StockMojo) and fixed dark/light theme visibility bugs.
+
+- **GEX scaling was 100× too large.** `frontend/src/lib/gex.ts` used the raw `spot²` notional; switched to the industry-standard **per-1%-move** scaling `gamma·OI·lot·spot²·0.01` — every per-strike/aggregate value now matches StockMojo.
+- **Call Wall was wrong.** `computeWalls` now uses the SpotGamma definition — Call Wall = strike with the largest **call-side** GEX, Put Wall = largest **put-side** GEX magnitude (was argmax/argmin of *net* GEX).
+- **"Show Flip" rendered nothing** on net-short days. Replaced the cumulative-sum `computeGammaFlip` with two correct overlays: **`computeNetGexCross`** (per-strike net zero-cross near spot, orange) and **`computeZeroGamma`** (true zero-gamma *spot*, recomputing gamma at candidate spots + bisection, cyan).
+- **Chart centering** — default strike window is a centered ±10, and `chartRows` now trims by symmetric strike-count around the ATM index so All/5/10/20 all stay centered even when the payload is edge-clamped.
+- **Theme fixes (inverted-slate).** Time-slider value bubbles (GEX + Open Interest) used `bg-slate-800 text-white` → invisible in dark; now fixed `#1e293b` hex. Light-theme scrollbar retuned from near-white/pure-black to `#cbd5e1`/`#94a3b8` grays (`index.css`). Open Interest "Market Insight" body text switched from inverting `text-slate-600` to the stable `text-primary-800/90` on its light `primary-50` box.
+
+**Files changed:** `frontend/src/lib/gex.ts` (+ `__tests__/gex.test.ts`, now 22 vitest tests), `frontend/src/components/options-lab/GexChart.tsx`, `frontend/src/pages/options-lab/GammaExposureTool.tsx`, `frontend/src/pages/options-lab/OpenInterestTool.tsx`, `frontend/src/index.css`.
+
+---
+
+## v0.7 — Gamma Exposure tool + chart-pref consumption (2026-07-10)
+
+Shipped the Options Lab → **Gamma Exposure** tool (the `gamma-exposure` slug). Backend serves **raw inputs, not results**: `GET /options-lab/gex-series/{id}` (`options_lab_service.get_gex_series`) returns per-snapshot aligned call/put OI + IV arrays per strike plus spot, `expiry_ts`, `risk_free`, `lot_size`; **all GEX math is client-side** in the pure module `frontend/src/lib/gex.ts` (Black-Scholes gamma, per-strike dealer GEX, walls, gamma-flip, regime). Tests: vitest in `src/lib/__tests__/gex.test.ts` + pytest `backend/tests/unit/services/test_options_lab_gex.py`. Added `pythonpath = ["."]` to backend `pyproject.toml` so `uv run pytest` resolves `app.*`.
+
+**Files added:** `frontend/src/lib/gex.ts`, `frontend/src/pages/options-lab/GammaExposureTool.tsx`, `frontend/src/components/options-lab/GexChart.tsx`, `backend/tests/unit/services/test_options_lab_gex.py`.
+**Files changed:** `backend/app/services/options_lab_service.py`, `backend/app/api/v1/routers/options_lab.py`.
+
+---
+
+## v0.6 — Settings persistence, tenancy plane, futures overlays (2026-07-06)
+
+- **Settings persistence.** New `user_preferences` table + profile columns on `users`; endpoints `PATCH /auth/me`, `GET/PUT /me/preferences`, `GET /me/plan` (routers `preferences.py`). Frontend `usePreferences` store (mirrors `useTheme`), seeded at login. Chart prefs consumed: `show_chart_tooltip` + `call_put_scheme` (classic/inverted) drive the ECharts tooltip and call/put colours.
+- **Multi-tenant (M5) plane.** `organizations`, `roles`, `permissions`, `role_permissions`, `memberships`, `api_keys`, `plans`, `subscriptions` tables + `broker_connections`; router `tenancy.py` (`/me/tenancy`, `/orgs`, `/api-keys`). Alembic migrations `359a6ec8421d`, `a2aa386db8ed`, `20afea002e7e`.
+- **Instruments master** — DB-driven `instruments` table + `/instruments`, `/instruments/search` (navbar combobox source).
+- **Fyers `quotes()` throttle hardening** — `get_futures` rides the batched `_refresh_all_spots`; chain-derive fallback (`_spot_and_fut_from_chain`) recovers real spot + futures during a `quotes()` 429.
+- **Four-theme system** (classic / warm / dark / terminal) via a CSS-variable slate remap on `<html>` — no per-element `dark:` variants.
+
+---
+
+## v0.5 — Options Lab ECharts migration + futures overlays (2026-07-03)
+
+- **Migrated all Options Lab charts to Apache ECharts** (`echarts` + `echarts-for-react/esm/core`): Multi OI & Volume, MultiStrike OI Change (`MultiLineChart.tsx`), and the Open Interest grouped-bar chart (`OpenInterestChart.tsx`) — axis tooltip, crosshair, legend toggles, wheel/drag/slider zoom; the instance is never remounted (`shouldSetOption={() => false}` + `setOption(..., { replaceMerge: ['series'] })`).
+- **Price overlays = current-month FUTURES, not index spot.** Added nullable `option_chain_snapshots.future_price` (`> 0` check), captured per snapshot; `OptionsLabService._fut_of` reads it with a spot fallback for pre-column rows.
+- **IV forward via put-call parity** (`F = K + (C−P)/disc`) fixed dashboard CE-row IV showing 0.0%; unrecoverable IV renders "—" and is stored NULL (never `iv = 0`, per `ck_ocr_iv`).
+- **Data-gap back-fill** — synthetic 09:15 open point reconstructed from day-over-day `oi_change` so morning-gap charts span the full session.
+
+**Files changed (key):** `backend/app/services/options_lab_service.py`, `backend/app/services/options_service.py`, `backend/app/ingestion/providers/fyers_provider.py`, `frontend/src/components/options-lab/MultiLineChart.tsx`, `frontend/src/components/options-lab/OpenInterestChart.tsx`, `docs/postgres_db_creation.sql`.
+
+---
+
 ## v0.1 — Initial Documentation (2026-06-20)
 
 Generated the first complete documentation set covering all layers of the platform as built.

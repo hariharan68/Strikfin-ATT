@@ -120,6 +120,63 @@ Returns the current user's profile.
 
 ---
 
+### `PATCH /auth/me`
+
+**Auth required:** Yes
+
+Updates editable profile fields from the Settings page: `display_name`, `phone`, `state`, `auth_provider`. Body is a partial `UserUpdate`; omitted fields are unchanged.
+
+**Response `200`:** Updated `UserOut`.
+
+---
+
+## Preferences & Plan (`/me`)
+
+### `GET /me/preferences` · `PUT /me/preferences`
+
+**Auth required:** Yes
+
+Per-user UI preferences (`user_preferences` table). `GET` returns the row (creating a default on first read); `PUT` upserts. Fields: `theme` (`classic`/`warm`/`dark`/`terminal`), `show_chart_tooltip` (bool), `call_put_scheme` (`classic`/`inverted`). The frontend seeds these into the `usePreferences` store at login.
+
+### `GET /me/plan`
+
+**Auth required:** Yes
+
+Returns the user's org plan tier + limits (from `plans` / `subscriptions`), for the Settings page plan card.
+
+---
+
+## Instruments (`/instruments`)
+
+DB-driven instrument master (replaces hardcoded per-id dicts). Powers the navbar instrument combobox.
+
+- `GET /instruments` — list active instruments (`InstrumentOut[]`).
+- `GET /instruments/search?q=` — typeahead search by symbol/name.
+- `GET /instruments/{instrument_id}` — single instrument.
+
+---
+
+## Future Lab (`/future-lab`)
+
+### `GET /future-lab/price-oi/{instrument_id}`
+
+**Auth required:** Yes
+
+Dense futures price (from `index_live_data`) aligned with total OI (from `option_chain_snapshots`) for the Future Lab Price-vs-OI chart.
+
+---
+
+## Tenancy (`/`)
+
+Multi-tenant (M5) plane — see [SAAS_MIGRATION_NOTES.md](SAAS_MIGRATION_NOTES.md).
+
+- `GET /me/tenancy` — the caller's orgs, roles, and effective permissions.
+- `GET /orgs` · `POST /orgs` — list / create organizations.
+- `GET /orgs/{org_id}/members` — org membership list.
+- `GET /api-keys` · `POST /api-keys` · `DELETE /api-keys/{key_id}` — per-org API keys (only the hash is stored; the raw key is shown once on create).
+
+---
+
 ## Dashboard (`/dashboard`)
 
 ### `GET /dashboard`
@@ -409,6 +466,34 @@ Intraday **time-series** of OI / Volume / OI-change per strike, used by the Mult
   "default_ids": ["24000CE", "24100CE", "24200CE", "24000PE", "24500CE"],
   "default_vol_ids": ["24000PE", "24100PE", "..."],
   "series": [ { "t": "...", "fut": 24350.5, "oi": [/* aligned to contracts */], "vol": [/* ... */], "chg": [/* ... */] } ]
+}
+```
+
+> The `fut` field (and Options Lab price overlays generally) is the **current-month FUTURES** price (`option_chain_snapshots.future_price`), not index spot — the tradable instrument carrying live volume. Per-strike OI/Volume stay option-chain data.
+
+---
+
+### `GET /options-lab/gex-series/{instrument_id}`
+
+**Auth required:** Yes · **Cached** (`lab:gex-series`, TTL `CACHE_TTL_OI`) · **Query:** `window` (strikes each side of ATM, default 20)
+
+Serves **raw inputs for client-side Gamma Exposure** — the backend does *no* GEX math. Returns, for the nearest expiry (the only one with intraday snapshots), per-snapshot arrays of call/put OI + IV aligned to `strikes`, plus each snapshot's `spot`, and the constants the browser needs to run Black-Scholes gamma.
+
+All GEX computation (per-strike dealer GEX with per-1%-move `spot²·0.01` scaling, Call/Put walls, Net-GEX-Cross, zero-gamma flip, regime) happens in `frontend/src/lib/gex.ts`. No synthetic 09:15 open point (the `oi − oi_change` reconstruction has no IV, so a GEX value there would be fabricated).
+
+**Response `200`** (abbreviated):
+```json
+{
+  "instrument_id": 1, "atm_strike": 24250.0, "lot_size": 65,
+  "risk_free": 0.065,
+  "expiry_date": "2026-07-21", "expiry_ts": "2026-07-21T10:00:00Z",
+  "strikes": [24000, 24050, "..."],
+  "data_quality": "intraday",
+  "series": [
+    { "t": "2026-07-17T05:31:59Z", "spot": 24255.35,
+      "c_oi": [/* aligned to strikes */], "c_iv": [/* %, null = unrecoverable */],
+      "p_oi": [/* ... */], "p_iv": [/* ... */] }
+  ]
 }
 ```
 

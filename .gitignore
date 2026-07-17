@@ -11,14 +11,20 @@ __pycache__/
 CLAUDE.md
 # Note: uv.lock IS committed (reproducible installs) — do not ignore it.
 
-# IDE
+# IDE / editors
 .vscode/
 .idea/
 .DS_Store
-.pytest_cache
-.claude
+.pytest_cache/
+
+# Claude Code local memory (intentionally not committed)
+.claude/
+
+# Logs & runtime artifacts
+*.log
+
+# Local security reports (not part of the app)
+Security/
 
 # OS
 Thumbs.db
-Security
-.claude

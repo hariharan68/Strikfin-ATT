@@ -4,40 +4,73 @@
 
 | Tool | Version | Role |
 |---|---|---|
-| `pytest` | 8.3.4 | Test runner |
+| `pytest` | 8.3.4 | Backend test runner |
 | `pytest-asyncio` | 0.24.0 | Async test support |
+| `vitest` | 3 | Frontend test runner (jsdom) |
 
-Tests live in `backend/tests/`. The only currently populated test suite is `tests/unit/engines/`.
+Backend tests live in `backend/tests/`; the populated suite is `tests/unit/services/` (GEX payload). Frontend tests live beside the code in `frontend/src/**/__tests__/`.
+
+> `backend/pyproject.toml` sets `[tool.pytest.ini_options] pythonpath = ["."]` so `app.*` imports resolve when running `uv run pytest` from `backend/`.
 
 ---
 
 ## Running the Tests
 
-Run from the `backend/` folder:
+### Backend (from `backend/`)
 
 ```bash
 cd backend
 
-# Run all tests (uv runs them inside the project's Python 3.11 env)
+# Run all backend tests (uv runs them inside the project's Python 3.11 env)
 uv run pytest
 
 # Run a specific file
-uv run pytest tests/unit/engines/test_options_math.py
+uv run pytest tests/unit/services/test_options_lab_gex.py
 
 # Verbose output
 uv run pytest -v
+```
 
-# With coverage (if coverage is installed)
-uv run pytest --cov=app tests/
+### Frontend (from `frontend/`)
+
+```bash
+cd frontend
+
+# Run the vitest suite once
+npx vitest run
+
+# Run a specific file (22 GEX math tests)
+npx vitest run src/lib/__tests__/gex.test.ts
 ```
 
 ---
 
-## Currently Covered: `tests/unit/engines/`
+## Currently Covered
 
-The unit test files exist in the directory but are currently empty stubs (each file contains only a single newline). No test functions have been written yet.
+### Frontend — `src/lib/__tests__/gex.test.ts` (22 tests)
 
-The three test files and the engine functions they are intended to cover:
+The Gamma Exposure math module (`src/lib/gex.ts`) is fully unit-tested: `bsGamma`
+(Black-Scholes gamma + input guards), `computeStrikeGEX` (dealer sign convention,
+missing-IV skip, per-1%-move `spot²·0.01` scaling), `computeWalls`
+(call-side / put-side gamma walls), `computeNetGexCross` (per-strike net zero-cross,
+nearest-spot selection), `computeZeroGamma` (zero-gamma spot via candidate-spot
+bisection; verified recomputed net GEX ≈ 0 at the flip), and `yearsToExpiry` /
+`toCrore` helpers.
+
+### Backend — `tests/unit/services/test_options_lab_gex.py`
+
+Payload-shape tests for `options_lab_service.get_gex_series` (aligned call/put OI +
+IV arrays per strike, spot/`expiry_ts`/`risk_free`/`lot_size` present, `None`
+pass-through for missing IV).
+
+---
+
+## Engine stubs: `tests/unit/engines/`
+
+The engine test files still exist but are currently empty stubs (each contains only
+a single newline). No test functions are written for them yet.
+
+The three files and the engine functions they are intended to cover:
 
 ### `test_options_math.py` — targets `engines/options_math.py`
 

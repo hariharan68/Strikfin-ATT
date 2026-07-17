@@ -15,17 +15,16 @@ Items explicitly noted in source code comments or docstrings as production gaps 
 - **News API / RSS feed integration** — `providers/__init__.py`: News headlines and FII/DII data are mock-only; Fyers does not provide these. A real news ingestion pipeline is needed.
 - **Extend caching to index snapshots** — the resilient cache facade (`core/cache.py`) is live and backs the options + options-lab read endpoints; `/index/*` endpoints are not cached yet and could be added the same router-level way.
 - **Return_5d and range_compression from price history** — `services/signal_service.py`: "return_5d / range_compression need history not present in a single snapshot, so they default to honest neutral values." A rolling price history store is needed.
-- **`ck_ocr_iv` constraint vs. IV=0 rows (known bug)** — the live DB has a `ck_ocr_iv` check on `option_chain_rows` (effectively `iv > 0`) that is **not** declared in `app/db/models.py`. Fyers returns `iv = 0` for deep ITM/OTM strikes, so the background option snapshot fails with `CheckViolationError` (server keeps running; that snapshot is skipped). Fix: either relax the constraint to `iv >= 0` (and reflect it in the ORM model + an Alembic migration) or clamp/skip zero-IV rows in the ingestion path (`services/options_service.py` / `ingestion/scheduler.py`). See [SETUP.md](SETUP.md#common-setup-errors).
+- **`ck_ocr_iv` constraint vs. IV=0 rows (RESOLVED)** — `option_chain_rows.ck_ocr_iv` allows `iv IS NULL OR iv > 0`. The Fyers provider now returns `None` for unrecoverable IV (recovered via Black-76 put-call parity), and the ingestion path never persists `iv = 0` — it stores `NULL`, so snapshots no longer fail with `CheckViolationError`.
 
 ### Testing
 
-- **Unit test implementations** — engine test files exist (`test_options_math.py`, `test_synthesizer.py`, `test_regime.py`) but are empty stubs. `test_regime.py` is now orphaned (the regime engine was removed) and should be deleted or repurposed. See [TESTING.md](TESTING.md) for the full gap list.
+- **Engine unit test implementations** — engine test files (`test_options_math.py`, `test_synthesizer.py`, `test_regime.py`) are still empty stubs. `test_regime.py` is orphaned (the regime engine was removed) and should be deleted or repurposed to cover `short_covering` / `outcome`. (The GEX math **is** covered: 22 frontend vitest tests + a backend service test — see [TESTING.md](TESTING.md).)
 - **Integration test suite** — No integration tests cover the full HTTP request → DB round trip.
 
 ### Infrastructure
 
-- **Alembic migration files** — `alembic/versions/` is empty. No migration history has been generated. The first `alembic revision --autogenerate` command must be run before the DB can be created from scratch via Alembic.
-- **Alembic env.py** — `alembic/env.py` is empty. It needs to be populated to point at the app models and database URL before migrations will work.
+- **Alembic (DONE)** — `alembic/env.py` is wired to the app models/URL and `alembic/versions/` holds a real history (baseline → instrument columns → `broker_connections` → multi-tenant tables → user-profile/preferences). `uv run alembic upgrade head` builds the schema from scratch. `docs/postgres_db_creation.sql` is a reference recreate kept in sync; Alembic is the source of truth.
 
 ---
 
@@ -39,12 +38,19 @@ Items explicitly noted in source code comments or docstrings as production gaps 
 - [x] Instrument-aware dashboards (NIFTY ⇄ SENSEX) via the dedicated `/options/{id}/*` endpoints
 - [x] Dashboard / tool auto-refresh polling (15–30 s `useFetch` intervals)
 - [x] Single-use refresh-token coalescing (no reload-logout)
-- [x] Options Lab — Open Interest chart redesign + Multi OI & Volume single-snapshot fix
 - [x] Removal of the standalone regime engine/service/router (bias folded into the synthesizer)
+- [x] **Options Lab migrated to Apache ECharts** (Multi OI & Volume, MultiStrike OI, Open Interest grouped bars) — axis tooltip, crosshair, legend toggles, zoom; never-remounted instance
+- [x] **Price overlays plot current-month FUTURES** (`option_chain_snapshots.future_price`), not index spot
+- [x] **IV via Black-76 put-call parity** — fixed CE-row IV showing 0.0%; unrecoverable IV → NULL / "—"
+- [x] **Gamma Exposure (GEX) tool** — client-side math (`lib/gex.ts`), `GET /options-lab/gex-series/{id}`, walls / Net-GEX-Cross / zero-gamma flip, per-1%-move scaling matching StockMojo
+- [x] **Settings persistence** — `user_preferences` + profile columns, `PATCH /auth/me`, `GET/PUT /me/preferences`, `GET /me/plan`; `usePreferences` store (chart tooltip + call/put scheme consumed)
+- [x] **Four-theme system** (classic / warm / dark / terminal) via CSS-variable slate remap
+- [x] **Multi-tenant plane** (orgs / roles / permissions / memberships / api_keys / plans / subscriptions) + `broker_connections` + DB-driven `instruments` master
+- [x] **Alembic migrations live** (`env.py` wired, real version history) — `ck_ocr_iv` IV=0 bug resolved (persist NULL)
+- [x] **Fyers `quotes()` throttle hardening** — one batched refresh + chain-derive fallback (`_spot_and_fut_from_chain`)
 
 ### Near-Term
 
-- [ ] Alembic `env.py` setup and initial migration generation
 - [ ] Unit tests for all engine functions (options_math, synthesizer, short_covering, outcome)
 - [ ] VIX 52-week percentile from `index_live_data` rolling window
 - [ ] Real 5d/20d FII rolling figures from `institutional_activity` table queries
@@ -61,7 +67,7 @@ Items explicitly noted in source code comments or docstrings as production gaps 
 
 ### Long-Term
 
-- [ ] Multi-user support (currently single-user by design)
+- [ ] Full multi-tenant activation (RLS enforcement, per-org data isolation, billing) — the tenancy tables/plane exist; wire enforcement end-to-end
 - [ ] Production deployment configuration (Docker, reverse proxy, HTTPS)
 - [ ] SENSEX option chain support through Fyers (currently mock data only for SENSEX)
 - [ ] Backtesting harness for the synthesizer bias signal (using `signal_outcomes`)

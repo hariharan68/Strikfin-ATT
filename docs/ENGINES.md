@@ -160,6 +160,22 @@ gex_label(gex)                 → "Positive (stabilising)" / "Negative (amplify
 
 Net GEX > 0 implies dealers are long gamma (mean-reverting / pinning); < 0 implies short gamma (trend-amplifying). Powers the Advanced Dashboard's Net GEX / Zero-Gamma Flip tiles.
 
+> **Options Lab GEX tool computes GEX in the browser, not here.** The `net_gex`
+> engine above powers the *Advanced Dashboard* tiles. The Options Lab → Gamma
+> Exposure tool instead pulls raw per-snapshot OI + IV from
+> `GET /options-lab/gex-series/{id}` and runs all math client-side in the pure
+> module `frontend/src/lib/gex.ts`. Its formulas (kept deliberately parallel):
+> - `computeStrikeGEX` — per-strike dealer GEX `gamma·OI·lot·spot²·0.01`
+>   (identical per-1%-move scaling as `net_gex`), dealer signs +CE / −PE;
+>   missing/NULL IV → that leg contributes 0.
+> - `computeWalls` — **Call Wall** = strike with the largest call-side GEX,
+>   **Put Wall** = largest put-side GEX magnitude (SpotGamma definition).
+> - `computeNetGexCross` — the per-strike net-GEX profile zero-cross nearest spot.
+> - `computeZeroGamma` — the true **zero-gamma spot**: recomputes every strike's
+>   Black-Scholes gamma at candidate spots and bisects the total-net sign change
+>   (so a flip exists even on a net-short day, unlike a cumulative across-strike
+>   sum). This supersedes the engine's simpler `gamma_flip_strike` for the tool.
+
 ---
 
 ### `true_range` · `atr` · `realized_vol` — Volatility from OHLC candles

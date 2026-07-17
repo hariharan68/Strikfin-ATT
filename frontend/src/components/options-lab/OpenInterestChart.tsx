@@ -181,8 +181,12 @@ export function OpenInterestChart({
     const fontFamily = getComputedStyle(document.body).fontFamily
     const strikes = bars.map((b) => b.strike)
     const cats = strikes.map((s) => String(s))
-    // Scale OI to lots if requested — keeps the axis consistent with the labels.
-    const sc = (v: number) => (showLot ? v / Math.max(1, lotSize) : v)
+    // "Show Lot" is a DISPLAY-unit toggle only — it must NOT rescale the bar data.
+    // Scaling the series by lot size made the value-axis extent jump ~lotSize× on
+    // toggle, and the bar rescale animation briefly overshot the grid top (bars
+    // spiking out of the chart). Bars stay in raw open-interest; only the axis
+    // labels and tooltip convert to lots (via fmtOI(showLot)). Toggling now moves
+    // neither a bar nor the axis — only the unit label.
 
     // ── Overlays: ATM band + spot / max-pain verticals ──
     const atmIdx = atmStrike !== undefined ? strikes.indexOf(atmStrike) : -1
@@ -245,8 +249,8 @@ export function OpenInterestChart({
 
     const side = (which: 'call' | 'put') => {
       const color = which === 'call' ? CALL : PUT
-      const openOf = (b: OIBar) => sc(which === 'call' ? b.callOpen : b.putOpen)
-      const nowOf = (b: OIBar) => sc(which === 'call' ? b.callNow : b.putNow)
+      const openOf = (b: OIBar) => (which === 'call' ? b.callOpen : b.putOpen)
+      const nowOf = (b: OIBar) => (which === 'call' ? b.callNow : b.putNow)
 
       if (mode === 'total') {
         return [
@@ -430,7 +434,7 @@ export function OpenInterestChart({
         axisLabel: {
           color: C.axisText,
           fontSize: 10,
-          formatter: (v: number) => (v === 0 ? '0' : fmtOI(showLot ? v * lotSize : v, showLot, lotSize)),
+          formatter: (v: number) => (v === 0 ? '0' : fmtOI(v, showLot, lotSize)),
         },
       },
       series,
@@ -442,11 +446,36 @@ export function OpenInterestChart({
   // Live polls / mode / theme changes mutate the existing instance. replaceMerge
   // on `series` drops old bars cleanly (mode switches change the series count);
   // the chart instance is never remounted.
+  //
+  // Show Lot is a display-unit toggle: bar DATA is identical in both states, so
+  // the y-axis extent never changes. ECharts short-circuits the axis redraw when
+  // the scale is unchanged — it stores the new label formatter but never invokes
+  // it, leaving the axis (and tooltip) stuck in the old unit. On a toggle we
+  // therefore force a full `notMerge` re-render so the new formatter is applied.
+  // This chart holds no ECharts-internal state to preserve (horizontal scroll is
+  // CSS overflow, not a dataZoom), so notMerge is safe here. Live polls keep the
+  // smooth merge path so bars tween instead of re-initialising every 15s.
+  const prevShowLot = useRef(showLot)
   useEffect(() => {
     const inst = chartRef.current?.getEchartsInstance()
     if (!inst) return
-    inst.setOption(buildOption(), { replaceMerge: ['series'] })
-  }, [buildOption])
+    const lotToggled = prevShowLot.current !== showLot
+    prevShowLot.current = showLot
+    if (lotToggled) {
+      // On a Show Lot toggle the bar DATA is identical (display-unit change only),
+      // so the y-axis extent doesn't move and ECharts short-circuits the axis
+      // redraw — it stores the new label formatter but never repaints, leaving the
+      // axis stuck in the old unit. `clear()` wipes the instance so the subsequent
+      // setOption rebuilds from scratch and MUST repaint the axis in the new unit.
+      // Safe here: the chart holds no ECharts-internal state to preserve (no
+      // dataZoom — horizontal scroll is CSS). Only runs on the rare toggle, never
+      // on the 15s live polls (those keep the smooth replaceMerge path below).
+      inst.clear()
+      inst.setOption(buildOption())
+    } else {
+      inst.setOption(buildOption(), { replaceMerge: ['series'] })
+    }
+  }, [buildOption, showLot])
 
   const C = chromeFor(isDark)
   const { call: CALL, put: PUT } = callPutColors(callPutScheme)

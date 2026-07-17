@@ -299,7 +299,9 @@ export function OpenInterestTool() {
               </div>
               <div className="mt-3 rounded-lg border border-primary-100 bg-primary-50/60 p-3">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-primary-700">ⓘ Market Insight</div>
-                <p className="mt-1 text-xs leading-snug text-slate-600">{data.sentiment.insight}</p>
+                {/* Body uses the stable primary scale (not slate, which inverts to
+                    light in dark themes → invisible light text on the light primary-50 box). */}
+                <p className="mt-1 text-xs leading-snug text-primary-800/90">{data.sentiment.insight}</p>
               </div>
               <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">ⓘ Analysis</div>
@@ -334,14 +336,24 @@ export function OpenInterestTool() {
               ))}
             </div>
             <div className="flex items-center gap-3">
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <label className="flex cursor-pointer select-none items-center gap-2 text-sm">
                 <span className="font-medium text-slate-600">Show Lot</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={showLot}
-                  onClick={() => setShowLot((v) => !v)}
-                  className={cn('relative h-5 w-9 rounded-full transition-colors', showLot ? 'bg-primary-600' : 'bg-slate-300')}
+                {/* Hidden checkbox — the <label> activates it on click (one event, no double-fire).
+                    Using a <button> inside <label> caused the label to re-click the button,
+                    toggling state twice and leaving the switch stuck. */}
+                <input
+                  type="checkbox"
+                  className="sr-only"
+                  checked={showLot}
+                  onChange={() => setShowLot((v) => !v)}
+                  aria-label="Show lot size units"
+                />
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    'relative inline-block h-5 w-9 rounded-full transition-colors',
+                    showLot ? 'bg-emerald-500' : 'bg-slate-300',
+                  )}
                 >
                   <span
                     className={cn(
@@ -349,7 +361,7 @@ export function OpenInterestTool() {
                       showLot ? 'translate-x-4' : 'translate-x-0.5',
                     )}
                   />
-                </button>
+                </span>
               </label>
               <LiveClock refreshing={refreshing} />
             </div>
@@ -392,8 +404,10 @@ export function OpenInterestTool() {
                   <>
                     {/* Selected "now" bubble, tracking the thumb */}
                     <span
-                      className="pointer-events-none absolute -top-7 z-10 -translate-x-1/2 rounded-md bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-white shadow"
-                      style={{ left: `${lastIdx === 0 ? 0 : (effNow / lastIdx) * 100}%` }}
+                      className="pointer-events-none absolute -top-7 z-10 -translate-x-1/2 rounded-md px-2 py-0.5 text-[11px] font-semibold text-white shadow"
+                      // Fixed dark hex (not the slate scale, which inverts in dark
+                      // themes → invisible white-on-white pill). Matches the Spot pill.
+                      style={{ left: `${lastIdx === 0 ? 0 : (effNow / lastIdx) * 100}%`, background: '#1e293b' }}
                     >
                       {nowLabel}
                     </span>
