@@ -218,6 +218,9 @@ class OptionsService:
                 snap_ts=now,
                 spot=spot,
                 future_price=future_price,
+                # Freeze the lot size in effect NOW — SEBI changes it over time,
+                # and historical lot-scaled reads must not rescale retroactively.
+                lot_size=instrument_snapshot.lot_size(instrument_id),
                 atm_strike=atm,
                 total_call_oi=total_call,
                 total_put_oi=total_put,

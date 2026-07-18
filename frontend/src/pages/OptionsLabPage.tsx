@@ -6,6 +6,8 @@ import { Panel } from '../components/ui/Panel'
 import { OpenInterestTool } from './options-lab/OpenInterestTool'
 import { MultiOiVolumeTool } from './options-lab/MultiOiVolumeTool'
 import { GammaExposureTool } from './options-lab/GammaExposureTool'
+import { PutCallRatioTool } from './options-lab/PutCallRatioTool'
+import { MaxPainTool } from './options-lab/MaxPainTool'
 
 
 // ── OI Tools sub-navigation (matches the navbar's OI TOOLS section) ──
@@ -84,6 +86,10 @@ export function OptionsLabPage() {
         <OpenInterestTool />
       ) : tool === 'multi-oi-volume' ? (
         <MultiOiVolumeTool />
+      ) : tool === 'put-call-ratio' ? (
+        <PutCallRatioTool />
+      ) : tool === 'max-pain' ? (
+        <MaxPainTool />
       ) : tool === 'gamma-exposure' ? (
         <GammaExposureTool />
       ) : (

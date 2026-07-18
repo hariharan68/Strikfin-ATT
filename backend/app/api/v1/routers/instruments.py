@@ -35,6 +35,7 @@ def _to_out(ref: InstrumentRef) -> InstrumentOut:
         tick_size=ref.tick_size,
         strike_step=ref.strike_step,
         expiry_rule=ref.expiry_rule,
+        option_expiry_rule=ref.option_expiry_rule,
         status=ref.status,
         is_active=ref.is_active,
     )

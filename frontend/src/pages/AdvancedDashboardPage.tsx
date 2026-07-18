@@ -1,4 +1,3 @@
-import { AlertTriangle, Check } from 'lucide-react'
 import { getDashboard, getFutures, getOptionsMetrics } from '../api/endpoints'
 import type {
   DashboardData,
@@ -23,9 +22,13 @@ function priceOf(snap?: IndexSnapshot): number | undefined {
   return snap?.ltp ?? snap?.price ?? snap?.last_price
 }
 
-function resolveIndex(data: DashboardData | null, id: number, key: 'nifty' | 'sensex') {
+function resolveIndex(data: DashboardData | null, id: number, key?: 'nifty' | 'sensex') {
   if (!data) return undefined
-  return data[key] ?? data.indices?.find((i) => i.instrument_id === id)
+  return (
+    (key ? data[key] : undefined) ??
+    data.instruments?.find((e) => e.instrument_id === id)?.card ??
+    data.indices?.find((i) => i.instrument_id === id)
+  )
 }
 
 
@@ -165,33 +168,6 @@ function FuturesCard({ label, loading, data }: FuturesCardProps) {
   )
 }
 
-// ── VIX card ─────────────────────────────────────────────────
-function VixCard({ loading, vix }: { loading: boolean; vix?: number }) {
-  const elevated = (vix ?? 0) > 16
-  return (
-    <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-shadow hover:shadow-md">
-      <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">India VIX</p>
-      {loading ? (
-        <Skeleton className="mt-2 h-9 w-24" />
-      ) : (
-        <p className="mt-1 text-[2rem] font-bold leading-none tracking-tight text-slate-900">
-          <AnimatedNumber value={vix} format={(n) => formatNumber(n)} />
-        </p>
-      )}
-      {vix !== undefined && (
-        <span
-          className={`mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-            elevated ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400' : 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400'
-          }`}
-        >
-          {elevated ? <><AlertTriangle size={12} className="mr-1" /> Elevated</> : <><Check size={12} className="mr-1" /> Calm</>}
-        </span>
-      )}
-      <div className={`absolute bottom-0 left-0 h-1 w-full ${elevated ? 'bg-amber-400' : 'bg-blue-400'}`} />
-    </div>
-  )
-}
-
 // ── Options stat tile ─────────────────────────────────────────
 interface StatTileProps {
   label: string
@@ -262,15 +238,23 @@ export function AdvancedDashboardPage() {
     { intervalMs: 30_000 },
   )
 
+  const { data: bankniftyFut, loading: bankniftyFutLoading } = useFetch<FuturesSnapshot>(
+    () => getFutures(3),
+    [],
+    { intervalMs: 30_000 },
+  )
+
   const { data: optMetrics, loading: optLoading } = useFetch<OptionsMetrics>(
     () => getOptionsMetrics(instrument),
     [instrument],
     { intervalMs: 30_000 },
   )
 
-  const nifty  = resolveIndex(data, 1, 'nifty')
-  const sensex = resolveIndex(data, 2, 'sensex')
+  const nifty     = resolveIndex(data, 1, 'nifty')
+  const sensex    = resolveIndex(data, 2, 'sensex')
+  const banknifty = resolveIndex(data, 3)
   const vix    = (isSensex ? sensex : nifty)?.india_vix ?? data?.india_vix ?? data?.vix
+  const vixElevated = (vix ?? 0) > 16
   const updatedAt = data?.as_of ?? data?.generated_at ?? data?.updated_at
 
   return (
@@ -298,13 +282,13 @@ export function AdvancedDashboardPage() {
 
       {/* 3+2 grid: spot | spot | vix on row 1, fut | fut on row 2 */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-        {/* Row 1 */}
+        {/* Row 1 — index spot */}
         <IndexCard
           label="NIFTY 50"
           loading={loading}
           price={priceOf(nifty)}
           changePct={nifty?.change_pct}
-          isSelected={!isSensex}
+          isSelected={instrument === 1}
         />
         <IndexCard
           label="SENSEX"
@@ -313,9 +297,15 @@ export function AdvancedDashboardPage() {
           changePct={sensex?.change_pct}
           isSelected={isSensex}
         />
-        <VixCard loading={loading} vix={vix} />
+        <IndexCard
+          label="BANK NIFTY"
+          loading={loading}
+          price={priceOf(banknifty)}
+          changePct={banknifty?.change_pct}
+          isSelected={instrument === 3}
+        />
 
-        {/* Row 2 */}
+        {/* Row 2 — futures */}
         <FuturesCard
           label="NIFTY Futures"
           loading={niftyFutLoading}
@@ -326,15 +316,27 @@ export function AdvancedDashboardPage() {
           loading={sensexFutLoading}
           data={sensexFut ?? undefined}
         />
+        <FuturesCard
+          label="BANK NIFTY Futures"
+          loading={bankniftyFutLoading}
+          data={bankniftyFut ?? undefined}
+        />
       </div>
 
       {/* ── Options Snapshot strip ── */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <StatTile
           label="PCR (OI)"
           value={formatNumber(optMetrics?.pcr_oi)}
           sub={pcrHint(optMetrics?.pcr_oi)}
           loading={optLoading}
+        />
+        <StatTile
+          label="India VIX"
+          value={vix !== undefined ? formatNumber(vix) : '—'}
+          sub={vix !== undefined ? (vixElevated ? 'Elevated' : 'Calm') : undefined}
+          subColor={vixElevated ? 'text-amber-600' : 'text-blue-600'}
+          loading={loading}
         />
         <StatTile
           label="Max Pain"

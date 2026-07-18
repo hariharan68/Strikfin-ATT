@@ -15,6 +15,11 @@ GET /api/v1/options-lab/oi-series/{instrument_id}
 GET /api/v1/options-lab/gex-series/{instrument_id}
     Raw per-snapshot chain data (OI + IV per leg, spot, expiry) for the Gamma
     Exposure tool. GEX math runs client-side (frontend/src/lib/gex.ts).
+
+GET /api/v1/options-lab/pcr-series/{instrument_id}
+    Intraday time-series of Put-Call Ratio + total Call/Put OI + Call/Put
+    OI-change (chain-wide, with a futures overlay). Powers the Options Lab →
+    Put-Call Ratio tool (three stacked charts).
 """
 from fastapi import APIRouter, Path, Query
 
@@ -75,5 +80,22 @@ async def gex_series_view(
 
     svc  = OptionsLabService(db)
     data = await svc.get_gex_series(instrument_id, window=window)
+    await cache.set_json(key, data, ttl=settings.CACHE_TTL_OI)
+    return data
+
+
+@router.get("/pcr-series/{instrument_id}")
+async def pcr_series_view(
+    instrument_id: int = Path(..., ge=1),
+    db: DBSession = None,
+    _uid: CurrentUserId = None,
+):
+    key = make_key("lab:pcr-series", instrument_id)
+    cached = await cache.get_json(key)
+    if cached is not None:
+        return cached
+
+    svc  = OptionsLabService(db)
+    data = await svc.get_pcr_series(instrument_id)
     await cache.set_json(key, data, ttl=settings.CACHE_TTL_OI)
     return data

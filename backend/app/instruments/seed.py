@@ -41,7 +41,8 @@ DEFAULT_INSTRUMENTS: list[dict[str, Any]] = [
         "lot_size": 65,
         "tick_size": 0.05,
         "strike_step": 50,
-        "expiry_rule": "MONTHLY_LAST_THU",
+        "expiry_rule": "MONTHLY_LAST_THU",       # futures (monthly)
+        "option_expiry_rule": "WEEKLY_TUE",      # weekly index options
         "vendor_symbols": {
             "fyers": {
                 "spot": "NSE:NIFTY50-INDEX",
@@ -64,12 +65,37 @@ DEFAULT_INSTRUMENTS: list[dict[str, Any]] = [
         "lot_size": 20,
         "tick_size": 0.05,
         "strike_step": 100,
-        "expiry_rule": "MONTHLY_LAST_THU",
+        "expiry_rule": "MONTHLY_LAST_THU",       # futures (monthly)
+        "option_expiry_rule": "WEEKLY_TUE",      # weekly index options
         "vendor_symbols": {
             "fyers": {
                 "spot": "BSE:SENSEX-INDEX",
                 "option": "BSE:SENSEX-INDEX",
                 "futures_template": "BSE:SENSEX{yy}{mon}FUT",
+            }
+        },
+        "snapshot_enabled": True,
+        "status": "ACTIVE",
+        "is_active": True,
+    },
+    {
+        "instrument_id": 3,
+        "symbol": "BANKNIFTY",
+        "display_name": "BANK NIFTY",
+        "exchange": "NSE",
+        "segment": "INDEX",
+        "instrument_type": "INDEX",
+        "underlying": None,
+        "lot_size": 30,
+        "tick_size": 0.05,
+        "strike_step": 100,
+        "expiry_rule": "MONTHLY_LAST_THU",       # futures (monthly)
+        "option_expiry_rule": "MONTHLY_LAST_THU",  # SEBI: BANKNIFTY options are MONTHLY
+        "vendor_symbols": {
+            "fyers": {
+                "spot": "NSE:NIFTYBANK-INDEX",
+                "option": "NSE:NIFTYBANK-INDEX",
+                "futures_template": "NSE:BANKNIFTY{yy}{mon}FUT",
             }
         },
         "snapshot_enabled": True,

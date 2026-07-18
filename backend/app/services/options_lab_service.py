@@ -74,8 +74,8 @@ class OptionsLabService:
         Returns the intraday Open-Interest view for the Open Interest tool.
         Never raises for "no data" — degrades to the live/proxy path.
         """
-        now_rows, open_rows, now_ts, open_ts, quality = await self._resolve_series(
-            instrument_id
+        now_rows, open_rows, now_ts, open_ts, quality, anchor_snap, expiry_iso = (
+            await self._resolve_series(instrument_id)
         )
 
         if not now_rows:
@@ -155,7 +155,8 @@ class OptionsLabService:
             "spot":               round(spot, 2),
             "atm_strike":         atm,
             "max_pain":           mp,
-            "lot_size":           instrument_snapshot.lot_size(instrument_id),
+            "lot_size":           self._lot_of(anchor_snap, instrument_id),
+            "expiry_date":        expiry_iso,
             "pcr_oi":             pcr_now,
             "pcr_change":         round(pcr_now - pcr_open, 2),
             "open_ts":            open_ts,
@@ -323,10 +324,11 @@ class OptionsLabService:
         return {
             "instrument_id": instrument_id,
             "symbol":        _symbol(instrument_id),
-            "lot_size":      instrument_snapshot.lot_size(instrument_id),
+            "lot_size":      self._lot_of(latest, instrument_id),
             "spot":          round(spot, 2),
             "atm_strike":    atm,
             "trade_date":    latest.trade_date.isoformat(),
+            "expiry_date":   self._expiry_iso(latest),
             "open_ts":       series[0]["t"] if series else None,
             "now_ts":        series[-1]["t"] if series else None,
             "data_quality":  quality,
@@ -426,7 +428,7 @@ class OptionsLabService:
         return {
             "instrument_id": instrument_id,
             "symbol":        _symbol(instrument_id),
-            "lot_size":      instrument_snapshot.lot_size(instrument_id),
+            "lot_size":      self._lot_of(latest, instrument_id),
             "spot":          round(spot, 2),
             "atm_strike":    atm,
             "trade_date":    latest.trade_date.isoformat(),
@@ -438,6 +440,164 @@ class OptionsLabService:
             "data_quality":  "intraday" if len(series) >= 2 else "live_proxy",
             "strikes":       win_strikes,
             "series":        series,
+        }
+
+    async def get_pcr_series(self, instrument_id: int) -> dict:
+        """
+        Intraday time-series of Put-Call Ratio + total Call/Put OI + Call/Put
+        OI-change, for the Options Lab → Put-Call Ratio tool. One payload feeds
+        all three charts: PCR (put_oi / call_oi), OI Change (Call vs Put), and
+        Total OI (Call vs Put).
+
+        Mirrors ``get_oi_series`` session assembly — every in-session snapshot on
+        the latest trade date, a synthetic 09:15 open when ingestion started late
+        (``open_oi = oi − oi_change``), and the 15:30 official close appended —
+        but totals are summed over the WHOLE chain (no strike window). The
+        ``fut`` overlay is the tradable current-month FUTURES price via
+        ``_fut_of`` (the PRICE-OVERLAY CONVENTION documented on ``get_oi_series``).
+        """
+        snaps = await self._day_snapshots(instrument_id)
+        if not snaps:
+            return self._live_pcr_series(instrument_id)
+
+        latest = snaps[-1]
+        close_snap = await self._close_snapshot(instrument_id, latest.trade_date)
+        snap_ids = [s.snapshot_id for s in snaps]
+        append_close = (
+            close_snap is not None
+            and snaps[-1].snap_ts < self._market_close_dt(latest.trade_date).replace(tzinfo=None)
+        )
+        if append_close:
+            snap_ids.append(close_snap.snapshot_id)
+        rows_by_snap = await self._rows_by_snapshot(snap_ids)
+        if not rows_by_snap.get(latest.snapshot_id):
+            return self._live_pcr_series(instrument_id)
+
+        def _point(snap, t_iso: str) -> dict:
+            call_oi = put_oi = call_chg = put_chg = 0
+            for r in rows_by_snap.get(snap.snapshot_id, []):
+                oi = _i(r.get("oi"))
+                chg = _i(r.get("oi_change"))
+                if r["option_type"] == "CE":
+                    call_oi += oi
+                    call_chg += chg
+                else:
+                    put_oi += oi
+                    put_chg += chg
+            return {
+                "t":           t_iso,
+                "fut":         self._fut_of(snap),
+                "pcr":         round(put_oi / call_oi, 4) if call_oi > 0 else None,
+                "call_oi":     call_oi,
+                "put_oi":      put_oi,
+                "call_oi_chg": call_chg,
+                "put_oi_chg":  put_chg,
+            }
+
+        series = [
+            _point(snap, snap.snap_ts.replace(tzinfo=timezone.utc).isoformat())
+            for snap in snaps
+        ]
+        if append_close and rows_by_snap.get(close_snap.snapshot_id):
+            series.append(_point(close_snap, self._market_close_dt(latest.trade_date).isoformat()))
+
+        real_points = len(series)
+        if series and (
+            real_points == 1 or self._is_late_start(snaps[0].snap_ts, latest.trade_date)
+        ):
+            series.insert(
+                0, self._synth_pcr_open(series[0], self._market_open_iso(latest.trade_date))
+            )
+        quality = "intraday" if real_points >= 2 else "live_proxy"
+        return {
+            "instrument_id": instrument_id,
+            "symbol":        _symbol(instrument_id),
+            "lot_size":      self._lot_of(latest, instrument_id),
+            "trade_date":    latest.trade_date.isoformat(),
+            "expiry_date":   latest.expiry_date.isoformat() if latest.expiry_date else None,
+            "open_ts":       series[0]["t"] if series else None,
+            "now_ts":        series[-1]["t"] if series else None,
+            "data_quality":  quality,
+            "series":        series,
+        }
+
+    @staticmethod
+    def _synth_pcr_open(now_point: dict, open_ts_iso: str) -> dict:
+        """
+        Synthesize a 09:15 PCR "open" point from the day-over-day OI change
+        (``open_oi = now_oi − oi_change``) so a late-start/single-snapshot day
+        still renders an open→now curve. Opening OI-change is 0; PCR is derived
+        from the reconstructed opens; the future price is held flat.
+        """
+        call_open = now_point["call_oi"] - now_point["call_oi_chg"]
+        put_open = now_point["put_oi"] - now_point["put_oi_chg"]
+        return {
+            "t":           open_ts_iso,
+            "fut":         now_point["fut"],
+            "pcr":         round(put_open / call_open, 4) if call_open > 0 else None,
+            "call_oi":     call_open,
+            "put_oi":      put_open,
+            "call_oi_chg": 0,
+            "put_oi_chg":  0,
+        }
+
+    def _live_pcr_series(self, instrument_id: int) -> dict:
+        """No DB history — one live chain rendered as an open→now PCR series."""
+        try:
+            chain = get_option_chain(instrument_id)
+        except Exception:
+            logger.warning("live chain fetch failed for PCR series", exc_info=True)
+            chain = {}
+        rows = chain.get("rows", [])
+        today = datetime.now(_IST).date()
+        now_ts = datetime.now(timezone.utc).isoformat()
+        if not rows:
+            return {
+                "instrument_id": instrument_id,
+                "symbol":        _symbol(instrument_id),
+                "lot_size":      instrument_snapshot.lot_size(instrument_id),
+                "trade_date":    today.isoformat(),
+                "expiry_date":   None,
+                "open_ts":       None,
+                "now_ts":        now_ts,
+                "data_quality":  "empty",
+                "series":        [],
+            }
+        call_oi = put_oi = call_chg = put_chg = 0
+        for r in rows:
+            oi = _i(r.get("oi"))
+            chg = _i(r.get("oi_change"))
+            if r["option_type"] == "CE":
+                call_oi += oi
+                call_chg += chg
+            else:
+                put_oi += oi
+                put_chg += chg
+        spot = self._spot_for(instrument_id, [
+            {"strike": _f(r["strike"]), "option_type": r["option_type"], "oi": _i(r.get("oi"))}
+            for r in rows
+        ])
+        now_point = {
+            "t":           now_ts,
+            "fut":         self._live_fut(instrument_id, spot),
+            "pcr":         round(put_oi / call_oi, 4) if call_oi > 0 else None,
+            "call_oi":     call_oi,
+            "put_oi":      put_oi,
+            "call_oi_chg": call_chg,
+            "put_oi_chg":  put_chg,
+        }
+        open_point = self._synth_pcr_open(now_point, self._market_open_iso(today))
+        expiry_raw = chain.get("expiry_date")
+        return {
+            "instrument_id": instrument_id,
+            "symbol":        _symbol(instrument_id),
+            "lot_size":      instrument_snapshot.lot_size(instrument_id),
+            "trade_date":    today.isoformat(),
+            "expiry_date":   expiry_raw if expiry_raw else None,
+            "open_ts":       open_point["t"],
+            "now_ts":        now_ts,
+            "data_quality":  "live_proxy",
+            "series":        [open_point, now_point],
         }
 
     def _live_gex_series(self, instrument_id: int, window: int) -> dict:
@@ -982,8 +1142,12 @@ class OptionsLabService:
 
     async def _resolve_series(self, instrument_id: int):
         """
-        Returns (now_rows, open_rows, now_ts_iso, open_ts_iso, quality).
-        now_rows/open_rows are lists of {strike, option_type, oi, oi_change}.
+        Returns (now_rows, open_rows, now_ts_iso, open_ts_iso, quality,
+        anchor_snap, expiry_iso). now_rows/open_rows are lists of
+        {strike, option_type, oi, oi_change}. `anchor_snap` is the "now"
+        OptionChainSnapshot the view is anchored to (None on the live-proxy
+        path) — it carries the frozen `lot_size`; `expiry_iso` is the chain's
+        expiry date as an ISO string (or None).
         """
         # Anchor to the latest *in-session* snapshot. When the market is closed
         # (after-hours, weekend, holiday) the scheduler may still persist
@@ -1025,11 +1189,11 @@ class OptionsLabService:
                 open_ts = self._market_open_iso(latest.trade_date)
             else:
                 open_ts = earliest.snap_ts.replace(tzinfo=timezone.utc).isoformat()
-            return now_rows, open_rows, now_ts, open_ts, "intraday"
+            return now_rows, open_rows, now_ts, open_ts, "intraday", now_snap, self._expiry_iso(now_snap)
 
         # Only one post-open snapshot today → proxy from day-over-day oi_change.
         open_ts = self._market_open_iso(latest.trade_date)
-        return now_rows, [], now_ts, open_ts, "live_proxy"
+        return now_rows, [], now_ts, open_ts, "live_proxy", now_snap, self._expiry_iso(now_snap)
 
     async def _earliest_after_open(self, instrument_id: int, latest):
         """
@@ -1081,7 +1245,7 @@ class OptionsLabService:
         ]
         now_ts = datetime.now(timezone.utc).isoformat()
         open_ts = self._market_open_iso(datetime.now(_IST).date())
-        return rows, [], now_ts, open_ts, "live_proxy"
+        return rows, [], now_ts, open_ts, "live_proxy", None, chain.get("expiry_date")
 
     # ─────────────────────────────────────────────────────────
     # HELPERS
@@ -1111,6 +1275,25 @@ class OptionsLabService:
         """
         fp = getattr(snap, "future_price", None)
         return _f(fp) if fp is not None else _f(snap.spot)
+
+    @staticmethod
+    def _lot_of(snap, instrument_id: int) -> int:
+        """
+        Lot size for a snapshot-anchored payload: the lot FROZEN at capture
+        (``option_chain_snapshots.lot_size``), falling back to the instrument
+        master only for rows saved before that column existed. Lot sizes are
+        SEBI-controlled and change over time — reading the frozen value keeps
+        historical lot-scaled charts (GEX notional, "Show Lot") correct after a
+        change. Live/no-DB fallback paths read the master directly instead.
+        """
+        ls = getattr(snap, "lot_size", None) if snap is not None else None
+        return int(ls) if ls else instrument_snapshot.lot_size(instrument_id)
+
+    @staticmethod
+    def _expiry_iso(snap) -> str | None:
+        """Snapshot's chain expiry date as ISO (None when absent)."""
+        exp = getattr(snap, "expiry_date", None) if snap is not None else None
+        return exp.isoformat() if exp else None
 
     def _live_fut(self, instrument_id: int, spot: float) -> float:
         """

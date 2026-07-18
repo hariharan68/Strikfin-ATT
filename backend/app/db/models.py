@@ -185,7 +185,11 @@ class Instrument(Base):
     underlying:      Mapped[Optional[str]]   = mapped_column(String(40),  nullable=True)
     tick_size:       Mapped[Optional[float]] = mapped_column(DECIMAL(12, 4), nullable=True)
     strike_step:     Mapped[Optional[float]] = mapped_column(DECIMAL(12, 2), nullable=True)  # replaces mock _STEP / round(spot/50)
-    expiry_rule:     Mapped[Optional[str]]   = mapped_column(String(40),  nullable=True)    # replaces the last-Thursday builder
+    expiry_rule:     Mapped[Optional[str]]   = mapped_column(String(40),  nullable=True)    # FUTURES expiry (monthly), replaces the last-Thursday builder
+    # OPTION expiry cadence — distinct from `expiry_rule` (futures). SEBI sets
+    # weekly vs monthly per index: WEEKLY_TUE (NIFTY/SENSEX) | MONTHLY_LAST_THU
+    # (BANKNIFTY). Interpreted by app/market_data/expiry.upcoming_option_expiries.
+    option_expiry_rule: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     # Per-vendor symbol map, e.g.
     #   {"fyers": {"spot": "NSE:NIFTY50-INDEX", "option": "NSE:NIFTY50-INDEX",
     #              "futures_template": "NSE:NIFTY{yy}{mon}FUT"}}
@@ -240,6 +244,12 @@ class OptionChainSnapshot(Base):
     # captured before this column existed (or when the futures fetch failed)
     # fall back to `spot` on read. See options_lab_service.get_oi_series.
     future_price:   Mapped[Optional[float]] = mapped_column(DECIMAL(12, 2), nullable=True)
+    # Contract lot size IN EFFECT when this snapshot was captured. Lot sizes are
+    # SEBI-controlled and change over time; freezing the value here keeps
+    # historical lot-scaled reads (GEX notional, "Show Lot") correct after a
+    # change. Nullable: rows captured before this column existed fall back to
+    # the instrument master on read — see options_lab_service._lot_of.
+    lot_size:       Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     atm_strike:     Mapped[float]         = mapped_column(DECIMAL(12, 2), nullable=False)
     total_call_oi:  Mapped[Optional[int]] = mapped_column(BIGINT, nullable=True)
     total_put_oi:   Mapped[Optional[int]] = mapped_column(BIGINT, nullable=True)

@@ -5,7 +5,7 @@ import type { GexSeries, InstrumentId } from '../../api/endpoints'
 import { useFetch } from '../../lib/useFetch'
 import { useInstrument } from '../../lib/useInstrument'
 import { callPutColors, usePreferences } from '../../lib/usePreferences'
-import { cn } from '../../lib/format'
+import { cn, fmtExpiry } from '../../lib/format'
 import {
   aggregate,
   computeNetGexCross,
@@ -47,20 +47,6 @@ function fmtClock(iso?: string | null): string {
     hour12: true,
     timeZone: 'Asia/Kolkata',
   }).format(d)
-}
-
-/** "14-Jul-2026 (4d)" for the expiry display. */
-function fmtExpiry(iso: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(`${iso}T00:00:00+05:30`)
-  if (Number.isNaN(d.getTime())) return iso
-  const label = new Intl.DateTimeFormat('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(d)
-  const days = Math.max(0, Math.round((d.getTime() - Date.now()) / 86_400_000))
-  return `${label} (${days === 0 ? 'today' : `${days}d`})`
 }
 
 export function GammaExposureTool() {
@@ -164,7 +150,7 @@ export function GammaExposureTool() {
           {/* Instrument selector */}
           <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-100 text-xs font-bold text-primary-700">
-              {instrument === 1 ? '50' : 'BSE'}
+              {INSTRUMENTS.find((x) => x.id === instrument)?.badge ?? '50'}
             </span>
             <span className="text-sm font-bold text-slate-800">{instShort}</span>
             <span className="flex gap-1">

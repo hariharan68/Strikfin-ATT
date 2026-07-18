@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 _WRITABLE = {
     "symbol", "exchange", "lot_size", "is_active",
     "display_name", "segment", "instrument_type", "underlying",
-    "tick_size", "strike_step", "expiry_rule", "vendor_symbols",
-    "snapshot_enabled", "status",
+    "tick_size", "strike_step", "expiry_rule", "option_expiry_rule",
+    "vendor_symbols", "snapshot_enabled", "status",
 }
 
 
@@ -66,6 +66,14 @@ async def upsert_instruments(
         await db.flush()
         await invalidate_instrument_cache(iid)
         out.append(InstrumentRef.from_model(row))
+
+    # Refresh the sync in-memory mirror the hot-path providers read, so an edit
+    # (e.g. a SEBI lot-size change) is live immediately — not after the next
+    # scheduler tick or restart. Reads the same session, so flushed rows are
+    # visible even before the caller commits.
+    if out:
+        from app.instruments import snapshot as instrument_snapshot
+        await instrument_snapshot.refresh(db)
     return out
 
 

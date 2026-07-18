@@ -47,6 +47,13 @@ interface Props {
   showLot: boolean
   /** signed adds +/- and forces a 0 baseline (OI-change chart). */
   signed?: boolean
+  /**
+   * Override the right-axis value formatting (axis labels, cross-pointer, series
+   * end-pills, tooltip body). Defaults to the OI formatter (`fmtOI` + signed).
+   * The PCR chart passes a plain-ratio formatter so its right axis shows e.g.
+   * "1.25" instead of OI units. The Future (left) axis always stays price-formatted.
+   */
+  valueFmt?: (v: number) => string
   /** Initial visibility of the future overlay (toggleable via the legend). */
   showFuture?: boolean
   /**
@@ -120,6 +127,7 @@ export function MultiLineChart({
   lotSize,
   showLot,
   signed,
+  valueFmt,
   showFuture = true,
   domainStart,
   domainEnd,
@@ -143,8 +151,9 @@ export function MultiLineChart({
 
   const futAvail = !!future && future.some((v) => v != null)
   const fmtY = useCallback(
-    (v: number) => (signed && v > 0 ? '+' : '') + fmtOI(v, showLot, lotSize),
-    [signed, showLot, lotSize],
+    (v: number) =>
+      valueFmt ? valueFmt(v) : (signed && v > 0 ? '+' : '') + fmtOI(v, showLot, lotSize),
+    [signed, showLot, lotSize, valueFmt],
   )
 
   const buildOption = useCallback((): EChartsOption => {

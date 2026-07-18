@@ -43,6 +43,7 @@ class InstrumentOut(BaseModel):
     tick_size: Optional[float] = None
     strike_step: Optional[float] = None
     expiry_rule: Optional[str] = None
+    option_expiry_rule: Optional[str] = None
     status: Optional[str] = None
     is_active: bool = True
 

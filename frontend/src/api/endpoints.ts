@@ -12,6 +12,8 @@ export interface Instrument {
   key: string
   label: string
   short: string
+  /** Small round chip shown in the Options Lab instrument selector ("50", "BSE", "BNK"). */
+  badge: string
 }
 
 /**
@@ -21,8 +23,9 @@ export interface Instrument {
  * blanks if the catalog request is in flight.
  */
 export const INSTRUMENTS: Instrument[] = [
-  { id: 1, key: 'nifty', label: 'NIFTY 50', short: 'NIFTY' },
-  { id: 2, key: 'sensex', label: 'SENSEX', short: 'SENSEX' },
+  { id: 1, key: 'nifty', label: 'NIFTY 50', short: 'NIFTY', badge: '50' },
+  { id: 2, key: 'sensex', label: 'SENSEX', short: 'SENSEX', badge: 'BSE' },
+  { id: 3, key: 'banknifty', label: 'BANK NIFTY', short: 'BANKNIFTY', badge: 'BNK' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -48,11 +51,14 @@ export interface InstrumentMeta {
 
 /** Map an API InstrumentMeta to the lightweight Instrument tab shape. */
 export function toInstrument(m: InstrumentMeta): Instrument {
+  // Badge: prefer the static seed's curated chip; fall back to the symbol head.
+  const seeded = INSTRUMENTS.find((x) => x.id === m.instrument_id)
   return {
     id: m.instrument_id,
     key: m.symbol.toLowerCase(),
     label: m.label || m.display_name || m.symbol,
     short: m.symbol,
+    badge: seeded?.badge ?? m.symbol.slice(0, 3).toUpperCase(),
   }
 }
 
@@ -419,6 +425,8 @@ export interface OILabView {
   atm_strike: number
   max_pain: number
   lot_size: number
+  /** Chain expiry (ISO date) — master-driven, weekly or monthly per instrument. */
+  expiry_date?: string | null
   pcr_oi: number
   pcr_change: number
   open_ts: string | null
@@ -463,6 +471,8 @@ export interface OILabSeries {
   spot: number
   atm_strike: number
   trade_date: string
+  /** Chain expiry (ISO date) — master-driven, weekly or monthly per instrument. */
+  expiry_date?: string | null
   open_ts: string | null
   now_ts: string | null
   data_quality: 'intraday' | 'live_proxy' | 'empty'
@@ -511,6 +521,36 @@ export async function getGexSeries(id: InstrumentId, window = 20): Promise<GexSe
   const { data } = await api.get<GexSeries>(`/options-lab/gex-series/${id}`, {
     params: { window },
   })
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Options Lab — Put-Call Ratio (intraday time-series: PCR, OI change, total OI)
+// ---------------------------------------------------------------------------
+export interface PcrSeriesPoint {
+  t: string // ISO timestamp
+  fut: number // current-month futures price (left-axis overlay)
+  pcr: number | null // put_oi / call_oi (null when call_oi == 0)
+  call_oi: number // chain-wide total call OI
+  put_oi: number // chain-wide total put OI
+  call_oi_chg: number // day-over-day call OI change
+  put_oi_chg: number // day-over-day put OI change
+}
+
+export interface PcrSeries {
+  instrument_id: number
+  symbol: string
+  lot_size: number
+  trade_date: string
+  expiry_date: string | null
+  open_ts: string | null
+  now_ts: string | null
+  data_quality: 'intraday' | 'live_proxy' | 'empty'
+  series: PcrSeriesPoint[]
+}
+
+export async function getPcrSeries(id: InstrumentId): Promise<PcrSeries> {
+  const { data } = await api.get<PcrSeries>(`/options-lab/pcr-series/${id}`)
   return data
 }
 

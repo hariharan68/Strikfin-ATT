@@ -92,6 +92,25 @@ export function formatDateTimeIST(input?: string | number | Date): string {
   }).format(d)
 }
 
+/**
+ * Chain expiry date label, e.g. "21 Jul 2026 (4d)". Input is the backend's
+ * `expiry_date` (ISO date, IST-market semantics). Shared by all Options Lab
+ * tools — the expiry now comes from the backend chain (master-driven), never
+ * from a hardcoded "next Tuesday" builder (weekly vs monthly is per-instrument).
+ */
+export function fmtExpiry(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(`${iso}T00:00:00+05:30`)
+  if (Number.isNaN(d.getTime())) return iso
+  const label = new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(d)
+  const days = Math.max(0, Math.round((d.getTime() - Date.now()) / 86_400_000))
+  return `${label} (${days === 0 ? 'today' : `${days}d`})`
+}
+
 export type Tone = 'bull' | 'bear' | 'neutral'
 
 /** Normalise a bias value or label into -1 / 0 / 1. */

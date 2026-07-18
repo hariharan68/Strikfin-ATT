@@ -65,6 +65,9 @@ class _InProcessBackend:
     async def set(self, key: str, value: str, ttl: int) -> None:
         self._store[key] = (time.time() + ttl, value)
 
+    async def delete(self, key: str) -> None:
+        self._store.pop(key, None)
+
 
 class _RedisBackend:
     """Shared Redis backend (async redis-py). Used only when REDIS_URL is set.
@@ -93,6 +96,9 @@ class _RedisBackend:
 
     async def set(self, key: str, value: str, ttl: int) -> None:
         await self._redis.set(key, value, ex=ttl)
+
+    async def delete(self, key: str) -> None:
+        await self._redis.delete(key)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -179,6 +185,20 @@ class Cache:
                 await self._redis.set(key, data, ttl)  # type: ignore[union-attr]
             except Exception:
                 self._trip()  # never let a cache write block/break the request
+
+    async def delete(self, key: str) -> None:
+        """Best-effort invalidation. The in-process copy is always dropped; the
+        Redis DEL rides the same fail-fast/circuit-breaker guard as reads, so a
+        down Redis degrades to TTL-based expiry there instead of blocking."""
+        try:
+            await self._memory.delete(key)
+        except Exception:
+            pass
+        if self._redis_available():
+            try:
+                await self._redis.delete(key)  # type: ignore[union-attr]
+            except Exception:
+                self._trip()
 
     def _warn_once(self) -> None:
         if not self._warned:

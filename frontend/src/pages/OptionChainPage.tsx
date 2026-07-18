@@ -233,6 +233,15 @@ export function OptionChainPage() {
   const loading  = snapshot.loading || metrics.loading || chain.loading
   const instInfo = INSTRUMENTS.find((x) => x.id === instrument)
 
+  // Cycle through the full instrument catalog (NIFTY → SENSEX → BANK NIFTY → …)
+  // with wraparound — was hardcoded to a NIFTY↔SENSEX toggle, so newer
+  // instruments (BANKNIFTY) were unreachable from the ‹ › arrows.
+  const cycleInstrument = (dir: 1 | -1) => {
+    const ids = INSTRUMENTS.map((x) => x.id)
+    const idx = ids.indexOf(instrument)
+    setInstrument(ids[(idx + dir + ids.length) % ids.length])
+  }
+
   // ── Build strike table ──────────────────────────────────────
   const {
     tableRows, atmStrike,
@@ -321,20 +330,22 @@ export function OptionChainPage() {
           {/* Instrument pill */}
           <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5">
             <button
-              onClick={() => setInstrument(instrument === 1 ? 2 : 1)}
+              onClick={() => cycleInstrument(-1)}
               className="text-slate-400 hover:text-slate-700"
+              aria-label="Previous instrument"
             >
               ‹
             </button>
             <span className="mx-1 flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary-600 text-[11px] font-bold text-white">
-                {instInfo?.id === 1 ? '50' : 'SX'}
+                {instInfo?.badge}
               </span>
               <span className="text-sm font-semibold text-slate-800">{instInfo?.short}</span>
             </span>
             <button
-              onClick={() => setInstrument(instrument === 1 ? 2 : 1)}
+              onClick={() => cycleInstrument(1)}
               className="text-slate-400 hover:text-slate-700"
+              aria-label="Next instrument"
             >
               ›
             </button>

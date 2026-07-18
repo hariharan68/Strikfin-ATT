@@ -78,7 +78,8 @@ class InstrumentRef:
     underlying: Optional[str] = None
     tick_size: Optional[float] = None
     strike_step: Optional[float] = None           # replaces mock_provider._STEP / round(spot/50)
-    expiry_rule: Optional[str] = None             # replaces the hardcoded last-Thursday builder
+    expiry_rule: Optional[str] = None             # FUTURES expiry rule (monthly)
+    option_expiry_rule: Optional[str] = None      # OPTION cadence: WEEKLY_* | MONTHLY_LAST_*
     vendor_symbols: dict = field(default_factory=dict)
     snapshot_enabled: bool = True                 # M3 scheduler iterates on this instead of (1, 2)
     status: Optional[str] = None                  # ACTIVE | DELISTED | SUSPENDED
@@ -120,6 +121,7 @@ class InstrumentRef:
             "tick_size": self.tick_size,
             "strike_step": self.strike_step,
             "expiry_rule": self.expiry_rule,
+            "option_expiry_rule": self.option_expiry_rule,
             "vendor_symbols": self.vendor_symbols,
             "snapshot_enabled": self.snapshot_enabled,
             "status": self.status,
@@ -141,6 +143,7 @@ class InstrumentRef:
             tick_size=d.get("tick_size"),
             strike_step=d.get("strike_step"),
             expiry_rule=d.get("expiry_rule"),
+            option_expiry_rule=d.get("option_expiry_rule"),
             vendor_symbols=d.get("vendor_symbols") or {},
             snapshot_enabled=bool(d.get("snapshot_enabled", True)),
             status=d.get("status"),
@@ -169,6 +172,7 @@ class InstrumentRef:
             tick_size=_f(getattr(m, "tick_size", None)),
             strike_step=_f(getattr(m, "strike_step", None)),
             expiry_rule=getattr(m, "expiry_rule", None),
+            option_expiry_rule=getattr(m, "option_expiry_rule", None),
             vendor_symbols=getattr(m, "vendor_symbols", None) or {},
             snapshot_enabled=bool(getattr(m, "snapshot_enabled", True)),
             status=getattr(m, "status", None),
@@ -223,9 +227,7 @@ async def resolve_active_instruments(db: AsyncSession) -> list[InstrumentRef]:
 
 
 async def invalidate_instrument_cache(instrument_id: int) -> None:
-    """Drop a cached ref (call after editing an instrument in M1). Best-effort;
-    entries also expire after `_CACHE_TTL`."""
-    # The cache facade has no delete; overwrite with a already-expired marker is
-    # unsafe, so we rely on TTL. Kept as an explicit hook for M1 where the cache
-    # gains a delete(). No-op today beyond logging intent.
-    logger.debug("instrument cache invalidation requested for %s (TTL-based)", instrument_id)
+    """Drop a cached ref (call after editing an instrument). Best-effort — a
+    failed delete degrades to TTL expiry (`_CACHE_TTL`), never raises."""
+    await cache.delete(make_key(_CACHE_NS, instrument_id))
+    logger.debug("instrument cache invalidated for %s", instrument_id)

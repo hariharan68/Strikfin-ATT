@@ -12,14 +12,11 @@ import type {
 } from '../api/endpoints'
 import { useFetch } from '../lib/useFetch'
 import {
-  biasLabel,
-  biasToTone,
   formatCrore,
   formatNumber,
   formatSignedPct,
   formatTimeIST,
   normalizeBias,
-  toneClasses,
 } from '../lib/format'
 import { MetricCard } from '../components/MetricCard'
 import { BiasPill } from '../components/BiasPill'
@@ -47,10 +44,10 @@ function priceOf(snap?: IndexSnapshot): number | undefined {
   return snap?.ltp ?? snap?.price ?? snap?.last_price
 }
 
-function resolveIndex(data: DashboardData | null, id: number, key: 'nifty' | 'sensex') {
+function resolveIndex(data: DashboardData | null, id: number, key?: 'nifty' | 'sensex') {
   if (!data) return undefined
   return (
-    data[key] ??
+    (key ? data[key] : undefined) ??
     data.instruments?.find((e) => e.instrument_id === id)?.card ??
     data.indices?.find((i) => i.instrument_id === id)
   )
@@ -80,9 +77,9 @@ export function DashboardPage() {
 
   const { catalog } = useInstruments()
 
-  // Live quotes over the WebSocket for the two reference cards + the selected
-  // instrument — prices tick in real time (no polling).
-  const liveIds = useMemo(() => [...new Set([1, 2, instrument])], [instrument])
+  // Live quotes over the WebSocket for the three index reference cards + the
+  // selected instrument — prices tick in real time (no polling).
+  const liveIds = useMemo(() => [...new Set([1, 2, 3, instrument])], [instrument])
   const liveQuotes = useLiveQuotes(liveIds)
 
   const isSensex = instrument === 2
@@ -90,6 +87,7 @@ export function DashboardPage() {
 
   const nifty = resolveIndex(data, 1, 'nifty')
   const sensex = resolveIndex(data, 2, 'sensex')
+  const banknifty = resolveIndex(data, 3)
 
   // Instrument-aware "focused" slice — drives the bias and options panels.
   // Prefer the generic `instruments` list (works for ANY instrument); fall back
@@ -103,7 +101,6 @@ export function DashboardPage() {
   const bias = normalizeBias(
     selectedSignal?.bias ?? selectedSignal?.bias_label ?? data?.ai_bias?.value ?? data?.ai_bias?.label,
   )
-  const biasConfidence = selectedSignal?.confidence ?? data?.ai_bias?.confidence
   const summary = data?.ai_summary ?? data?.summary
   // Options metrics for the selected instrument — fall back to the focused
   // index card only until the dedicated fetch resolves.
@@ -157,7 +154,7 @@ export function DashboardPage() {
           value={<AnimatedNumber value={liveQuotes[1]?.last_price ?? priceOf(nifty)} format={(n) => formatNumber(n)} />}
           badge={formatSignedPct(liveQuotes[1]?.change_pct ?? nifty?.change_pct)}
           badgeColor={((liveQuotes[1]?.change_pct ?? nifty?.change_pct) ?? 0) >= 0 ? 'green' : 'red'}
-          className={!isSensex ? 'ring-2 ring-primary-500 ring-offset-1' : undefined}
+          className={instrument === 1 ? 'ring-2 ring-primary-500 ring-offset-1' : undefined}
         />
         <MetricCard
           label="SENSEX"
@@ -168,14 +165,12 @@ export function DashboardPage() {
           className={isSensex ? 'ring-2 ring-primary-500 ring-offset-1' : undefined}
         />
         <MetricCard
-          label={`AI Bias · ${instrumentLabel}`}
+          label="BANK NIFTY"
           loading={loading}
-          value={<span className={toneClasses[biasToTone(bias)].text}>{biasLabel(bias)}</span>}
-          sub={
-            biasConfidence !== undefined
-              ? `${Math.round(biasConfidence <= 1 ? biasConfidence * 100 : biasConfidence)}% confidence`
-              : undefined
-          }
+          value={<AnimatedNumber value={liveQuotes[3]?.last_price ?? priceOf(banknifty)} format={(n) => formatNumber(n)} />}
+          badge={formatSignedPct(liveQuotes[3]?.change_pct ?? banknifty?.change_pct)}
+          badgeColor={((liveQuotes[3]?.change_pct ?? banknifty?.change_pct) ?? 0) >= 0 ? 'green' : 'red'}
+          className={instrument === 3 ? 'ring-2 ring-primary-500 ring-offset-1' : undefined}
         />
         <MetricCard
           label="India VIX"

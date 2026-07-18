@@ -6,7 +6,7 @@ import type { InstrumentId } from '../../api/endpoints'
 import { useFetch } from '../../lib/useFetch'
 import { useInstrument } from '../../lib/useInstrument'
 import { callPutColors, usePreferences } from '../../lib/usePreferences'
-import { cn, formatNumber } from '../../lib/format'
+import { cn, fmtExpiry, formatNumber } from '../../lib/format'
 import { Panel } from '../../components/ui/Panel'
 import { LiveClock } from '../../components/ui/LiveClock'
 import { ErrorBanner } from '../../components/ui/Page'
@@ -58,26 +58,6 @@ function fmtClock(iso?: string | null): string {
   }).format(d)
 }
 
-/** Upcoming weekly expiries (Tuesdays) for the expiry dropdown display. */
-function upcomingExpiries(from: Date, count = 6) {
-  const base = new Date(from)
-  base.setHours(0, 0, 0, 0)
-  const out: { label: string; days: number }[] = []
-  const d = new Date(base)
-  while (d.getDay() !== 2) d.setDate(d.getDate() + 1)
-  for (let i = 0; i < count; i++) {
-    const days = Math.round((d.getTime() - base.getTime()) / 86_400_000)
-    out.push({
-      label: new Intl.DateTimeFormat('en-IN', {
-        day: '2-digit', month: 'short', year: 'numeric',
-      }).format(d),
-      days,
-    })
-    d.setDate(d.getDate() + 7)
-  }
-  return out
-}
-
 export function OpenInterestTool() {
   const [instrument, setInstrument] = useInstrument()
   const [mode, setMode] = useState<OIMode>('change_total')
@@ -87,7 +67,6 @@ export function OpenInterestTool() {
   // is the baseline window (minutes back from now, or full session).
   const [nowIdx, setNowIdx] = useState<number | null>(null)
   const [openMode, setOpenMode] = useState<number | 'all'>('all')
-  const [selectedExpiry, setSelectedExpiry] = useState(0)
 
   const { data, error, loading, refreshing, refetch } = useFetch<OILabView>(
     () => getOILabView(instrument),
@@ -95,7 +74,6 @@ export function OpenInterestTool() {
     { intervalMs: 15_000 },
   )
 
-  const expiries = useMemo(() => upcomingExpiries(new Date()), [])
   const instShort = INSTRUMENTS.find((x) => x.id === instrument)?.short ?? 'NIFTY'
 
   const cycleInstrument = (dir: 1 | -1) => {
@@ -194,7 +172,7 @@ export function OpenInterestTool() {
           {/* Instrument selector */}
           <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-100 text-xs font-bold text-primary-700">
-              {instrument === 1 ? '50' : 'BSE'}
+              {INSTRUMENTS.find((x) => x.id === instrument)?.badge ?? '50'}
             </span>
             <span className="text-sm font-bold text-slate-800">{instShort}</span>
             <span className="flex gap-1">
@@ -236,15 +214,11 @@ export function OpenInterestTool() {
           <div className="mt-4">
             <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Expiry</div>
             <select
-              value={selectedExpiry}
-              onChange={(e) => setSelectedExpiry(Number(e.target.value))}
+              value={0}
+              onChange={() => {}}
               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-primary-400"
             >
-              {expiries.map((e, i) => (
-                <option key={e.label} value={i}>
-                  {e.label} ({e.days === 0 ? 'today' : `${e.days}d`})
-                </option>
-              ))}
+              <option value={0}>{fmtExpiry(data?.expiry_date ?? null)}</option>
             </select>
             <p className="mt-1.5 text-[11px] leading-snug text-slate-400">
               Live chain is served for the nearest expiry.
